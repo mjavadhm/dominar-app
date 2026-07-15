@@ -1,5 +1,7 @@
 package com.dominar.ride
 
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,8 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import android.content.Intent
-import android.os.Build
+import com.dominar.ride.ui.AppState
 import com.dominar.ride.ui.screens.ActiveRideScreen
 import com.dominar.ride.ui.screens.BleTestScreen
 import com.dominar.ride.ui.screens.BleTestViewModel
@@ -31,8 +32,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             DominarRideTheme {
-                // Screen: "home", "ride", "bletest"
                 var currentScreen by remember { mutableStateOf("home") }
+                val appState = remember { AppState(applicationContext) }
                 val bleTestViewModel = remember { BleTestViewModel() }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -40,17 +41,21 @@ class MainActivity : ComponentActivity() {
                         targetState = currentScreen,
                         transitionSpec = {
                             (slideInHorizontally { it } + fadeIn()) togetherWith
-                                    (slideOutHorizontally { -it } + fadeOut())
+                                (slideOutHorizontally { -it } + fadeOut())
                         },
                         label = "ScreenTransition"
                     ) { screen ->
                         when (screen) {
-                            "ride" -> ActiveRideScreen(onStopRide = { currentScreen = "home" })
+                            "ride" -> ActiveRideScreen(
+                                app = appState,
+                                onStopRide = { currentScreen = "home" }
+                            )
                             "bletest" -> BleTestScreen(
                                 viewModel = bleTestViewModel,
                                 onBack = { currentScreen = "home" }
                             )
                             else -> HomeScreen(
+                                app = appState,
                                 onStartRide = { currentScreen = "ride" },
                                 onOpenBleTest = { currentScreen = "bletest" }
                             )
@@ -61,6 +66,7 @@ class MainActivity : ComponentActivity() {
         }
         requestRuntimeEssentials()
         requestPhonePermissions()
+        requestBluetoothPermissions()
     }
 
     private fun requestRuntimeEssentials() {
@@ -73,8 +79,10 @@ class MainActivity : ComponentActivity() {
         val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
             startActivity(
-                Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    android.net.Uri.parse("package:$packageName"))
+                Intent(
+                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:$packageName")
+                )
             )
         }
     }
@@ -90,11 +98,24 @@ class MainActivity : ComponentActivity() {
         }
         if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), 101)
 
-        // دسترسی Notification Listener جداست و باید از تنظیمات فعال شود
         val enabled = androidx.core.app.NotificationManagerCompat
             .getEnabledListenerPackages(this)
         if (!enabled.contains(packageName)) {
             startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
+    }
+
+    private fun requestBluetoothPermissions() {
+        val needed = if (Build.VERSION.SDK_INT >= 31) {
+            arrayOf(
+                android.Manifest.permission.BLUETOOTH_SCAN,
+                android.Manifest.permission.BLUETOOTH_CONNECT
+            )
+        } else {
+            arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        }.filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), 102)
     }
 }
