@@ -1,16 +1,19 @@
 package com.dominar.ride.ui.screens
 
 import android.bluetooth.BluetoothDevice
+import android.content.Context
 import androidx.lifecycle.ViewModel
-import com.dominar.ride.data.BleTestManager
+import androidx.lifecycle.viewModelScope
+import com.dominar.ride.ble.BleConnectionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
 class BleTestViewModel : ViewModel() {
-    private var bleManager: BleTestManager? = null
+    private var bleManager: BleConnectionManager? = null
 
-    val connectionState get() = bleManager?.connectionState ?: MutableStateFlow(BleTestManager.ConnectionState.Disconnected)
+    val connectionState get() = bleManager?.connectionState ?: MutableStateFlow(BleConnectionManager.ConnectionState.Disconnected)
     val logs get() = bleManager?.logs ?: MutableStateFlow(emptyList())
     val foundDevices get() = bleManager?.foundDevices ?: MutableStateFlow(emptyList())
 
@@ -36,13 +39,15 @@ class BleTestViewModel : ViewModel() {
     val phoneCallState = MutableStateFlow(0)
     val phoneCallerName = MutableStateFlow("")
 
-    fun initManager(manager: BleTestManager) {
-        bleManager = manager
+    fun initManager(context: Context) {
+        if (bleManager == null) {
+            bleManager = BleConnectionManager(context, viewModelScope)
+        }
     }
 
     fun startScan() = bleManager?.startScan()
     fun stopScan() = bleManager?.stopScan()
-    fun connectToDevice(device: BluetoothDevice) = bleManager?.connectToDevice(device)
+    fun connectToDevice(device: BluetoothDevice) = bleManager?.connect(device)
     fun disconnect() = bleManager?.disconnect()
 
     fun sendNavPacket() {
@@ -61,16 +66,16 @@ class BleTestViewModel : ViewModel() {
                 distanceLeft = distLeft,
                 instructionText = navText.value
             )
-            mgr.writeToCharacteristic(BleTestManager.UUID_NAV, packet)
+            mgr.send(UUID.fromString(com.dominar.ride.protocol.DominarProtocol.UUID_NAV), packet)
         }
     }
 
     fun sendNavStart() {
-        bleManager?.let { it.writeToCharacteristic(BleTestManager.UUID_NAV, com.dominar.ride.protocol.DominarProtocol.buildNavStartPacket()) }
+        bleManager?.let { it.send(UUID.fromString(com.dominar.ride.protocol.DominarProtocol.UUID_NAV), com.dominar.ride.protocol.DominarProtocol.buildNavStartPacket()) }
     }
 
     fun sendNavStop() {
-        bleManager?.let { it.writeToCharacteristic(BleTestManager.UUID_NAV, com.dominar.ride.protocol.DominarProtocol.buildNavStopPacket()) }
+        bleManager?.let { it.send(UUID.fromString(com.dominar.ride.protocol.DominarProtocol.UUID_NAV), com.dominar.ride.protocol.DominarProtocol.buildNavStopPacket()) }
     }
 
     fun sendAlert() {
@@ -80,7 +85,7 @@ class BleTestViewModel : ViewModel() {
                 type = type,
                 content = alertContent.value
             )
-            mgr.writeToCharacteristic(BleTestManager.UUID_ALERT, packet)
+            mgr.send(UUID.fromString(com.dominar.ride.protocol.DominarProtocol.UUID_ALERT), packet)
         }
     }
 
@@ -97,7 +102,7 @@ class BleTestViewModel : ViewModel() {
                 headsetConnected = false,
                 heartbeat = 0
             )
-            mgr.writeToCharacteristic(BleTestManager.UUID_PHONE, packet)
+            mgr.send(UUID.fromString(com.dominar.ride.protocol.DominarProtocol.UUID_PHONE), packet)
         }
     }
 }

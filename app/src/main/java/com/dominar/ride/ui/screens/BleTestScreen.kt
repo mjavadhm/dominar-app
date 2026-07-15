@@ -24,7 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.dominar.ride.data.BleTestManager
+import com.dominar.ride.ble.BleConnectionManager
 import com.dominar.ride.ui.theme.*
 
 @Composable
@@ -61,7 +61,7 @@ fun BleTestScreen(
 
     // Init manager
     LaunchedEffect(Unit) {
-        viewModel.initManager(BleTestManager(context))
+        viewModel.initManager(context)
     }
 
     // Selected tab
@@ -105,10 +105,11 @@ fun BleTestScreen(
                 Spacer(modifier = Modifier.weight(1f))
                 // Status dot
                 val dotColor = when (connectionState) {
-                    is BleTestManager.ConnectionState.Connected -> StatusGood
-                    is BleTestManager.ConnectionState.Connecting,
-                    is BleTestManager.ConnectionState.Scanning -> StatusWarning
-                    is BleTestManager.ConnectionState.Error -> StatusDanger
+                    is BleConnectionManager.ConnectionState.Connected -> StatusGood
+                    is BleConnectionManager.ConnectionState.Connecting,
+                    is BleConnectionManager.ConnectionState.Reconnecting,
+                    is BleConnectionManager.ConnectionState.Scanning -> StatusWarning
+                    is BleConnectionManager.ConnectionState.Error -> StatusDanger
                     else -> TextSubtleDark
                 }
                 Box(
@@ -172,17 +173,17 @@ fun BleTestScreen(
 @Composable
 private fun ConnectionTab(
     vm: BleTestViewModel,
-    state: BleTestManager.ConnectionState,
+    state: BleConnectionManager.ConnectionState,
     devices: List<Pair<android.bluetooth.BluetoothDevice, String>>,
     permsGranted: Boolean
 ) {
     val statusText = when (state) {
-        is BleTestManager.ConnectionState.Disconnected -> "Disconnected"
-        is BleTestManager.ConnectionState.Scanning -> "Scanning..."
-        is BleTestManager.ConnectionState.Connecting -> "Connecting..."
-        is BleTestManager.ConnectionState.Connected -> "Connected ✓"
-        is BleTestManager.ConnectionState.Error -> "Error: ${state.message}"
-        else -> "Unknown"
+        is BleConnectionManager.ConnectionState.Disconnected -> "Disconnected"
+        is BleConnectionManager.ConnectionState.Scanning -> "Scanning..."
+        is BleConnectionManager.ConnectionState.Connecting -> "Connecting..."
+        is BleConnectionManager.ConnectionState.Reconnecting -> "Connecting... (Retry ${state.attempt})"
+        is BleConnectionManager.ConnectionState.Connected -> "Connected ✓"
+        is BleConnectionManager.ConnectionState.Error -> "Error: ${state.message}"
     }
 
     SectionCard("Connection Status") {
@@ -190,13 +191,13 @@ private fun ConnectionTab(
         Spacer(modifier = Modifier.height(12.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (state is BleTestManager.ConnectionState.Connected) {
+            if (state is BleConnectionManager.ConnectionState.Connected) {
                 TestButton("Disconnect", StatusDanger) { vm.disconnect() }
             } else {
                 TestButton(
-                    if (state is BleTestManager.ConnectionState.Scanning) "Scanning..." else "Scan",
+                    if (state is BleConnectionManager.ConnectionState.Scanning) "Scanning..." else "Scan",
                     PrimaryBlue,
-                    enabled = permsGranted && state !is BleTestManager.ConnectionState.Scanning
+                    enabled = permsGranted && state !is BleConnectionManager.ConnectionState.Scanning
                 ) { vm.startScan() }
             }
         }
@@ -232,8 +233,8 @@ private fun ConnectionTab(
 // ==================== NAVIGATION TAB ====================
 
 @Composable
-private fun NavigationTab(vm: BleTestViewModel, state: BleTestManager.ConnectionState) {
-    val isConnected = state is BleTestManager.ConnectionState.Connected
+private fun NavigationTab(vm: BleTestViewModel, state: BleConnectionManager.ConnectionState) {
+    val isConnected = state is BleConnectionManager.ConnectionState.Connected
     val maneuver by vm.navManeuver.collectAsState()
     val distance by vm.navDistance.collectAsState()
     val distFrac by vm.navDistFrac.collectAsState()
@@ -372,8 +373,8 @@ private fun NavigationTab(vm: BleTestViewModel, state: BleTestManager.Connection
 // ==================== ALERT TAB ====================
 
 @Composable
-private fun AlertTab(vm: BleTestViewModel, state: BleTestManager.ConnectionState) {
-    val isConnected = state is BleTestManager.ConnectionState.Connected
+private fun AlertTab(vm: BleTestViewModel, state: BleConnectionManager.ConnectionState) {
+    val isConnected = state is BleConnectionManager.ConnectionState.Connected
     val alertType by vm.alertType.collectAsState()
     val content by vm.alertContent.collectAsState()
 
@@ -413,8 +414,8 @@ private fun AlertTab(vm: BleTestViewModel, state: BleTestManager.ConnectionState
 // ==================== PHONE TAB ====================
 
 @Composable
-private fun PhoneTab(vm: BleTestViewModel, state: BleTestManager.ConnectionState) {
-    val isConnected = state is BleTestManager.ConnectionState.Connected
+private fun PhoneTab(vm: BleTestViewModel, state: BleConnectionManager.ConnectionState) {
+    val isConnected = state is BleConnectionManager.ConnectionState.Connected
     val battery by vm.phoneBattery.collectAsState()
     val signal by vm.phoneSignal.collectAsState()
     val volume by vm.phoneVolume.collectAsState()
