@@ -47,15 +47,18 @@ class BleTestViewModel : ViewModel() {
 
     fun sendNavPacket() {
         bleManager?.let { mgr ->
-            val packet = mgr.buildNavPacket(
-                isMeters = navIsMeters.value,
-                maneuverCode = navManeuver.value,
-                distToTurnInt = navDistance.value.toIntOrNull() ?: 0,
-                distToTurnFrac = navDistFrac.value.toIntOrNull() ?: 0,
-                etaHours = navEtaH.value.toIntOrNull() ?: 0,
-                etaMinutes = navEtaM.value.toIntOrNull() ?: 0,
-                distLeftInt = navDistLeftInt.value.toIntOrNull() ?: 0,
-                distLeftFrac = navDistLeftFrac.value.toIntOrNull() ?: 0,
+            val maneuverEnum = com.dominar.ride.protocol.DominarProtocol.Maneuver.entries.find { it.code == navManeuver.value } ?: com.dominar.ride.protocol.DominarProtocol.Maneuver.STRAIGHT
+            val distToTurn = (navDistance.value.toIntOrNull() ?: 0) + (navDistFrac.value.toIntOrNull() ?: 0) / 100.0
+            val distLeft = (navDistLeftInt.value.toIntOrNull() ?: 0) + (navDistLeftFrac.value.toIntOrNull() ?: 0) / 100.0
+            
+            val packet = com.dominar.ride.protocol.DominarProtocol.buildNavigationPacket(
+                isPm = false,
+                distanceUnitMeters = navIsMeters.value,
+                maneuver = maneuverEnum,
+                distanceToTurn = distToTurn,
+                etaHour = navEtaH.value.toIntOrNull() ?: 0,
+                etaMinute = navEtaM.value.toIntOrNull() ?: 0,
+                distanceLeft = distLeft,
                 instructionText = navText.value
             )
             mgr.writeToCharacteristic(BleTestManager.UUID_NAV, packet)
@@ -63,17 +66,18 @@ class BleTestViewModel : ViewModel() {
     }
 
     fun sendNavStart() {
-        bleManager?.let { it.writeToCharacteristic(BleTestManager.UUID_NAV, it.buildNavStartPacket()) }
+        bleManager?.let { it.writeToCharacteristic(BleTestManager.UUID_NAV, com.dominar.ride.protocol.DominarProtocol.buildNavStartPacket()) }
     }
 
     fun sendNavStop() {
-        bleManager?.let { it.writeToCharacteristic(BleTestManager.UUID_NAV, it.buildNavStopPacket()) }
+        bleManager?.let { it.writeToCharacteristic(BleTestManager.UUID_NAV, com.dominar.ride.protocol.DominarProtocol.buildNavStopPacket()) }
     }
 
     fun sendAlert() {
         bleManager?.let { mgr ->
-            val packet = mgr.buildAlertPacket(
-                alertType = alertType.value,
+            val type = if (alertType.value == 1) com.dominar.ride.protocol.DominarProtocol.AlertType.SMS else com.dominar.ride.protocol.DominarProtocol.AlertType.WHATSAPP
+            val packet = com.dominar.ride.protocol.DominarProtocol.buildAlertPacket(
+                type = type,
                 content = alertContent.value
             )
             mgr.writeToCharacteristic(BleTestManager.UUID_ALERT, packet)
@@ -82,13 +86,16 @@ class BleTestViewModel : ViewModel() {
 
     fun sendPhoneStatus() {
         bleManager?.let { mgr ->
-            val packet = mgr.buildPhoneStatusPacket(
+            val callStateEnum = com.dominar.ride.protocol.DominarProtocol.CallState.entries.find { it.code == phoneCallState.value } ?: com.dominar.ride.protocol.DominarProtocol.CallState.NO_CALL
+            val packet = com.dominar.ride.protocol.DominarProtocol.buildPhoneStatusPacket(
                 batteryLevel = phoneBattery.value,
                 signalStrength = phoneSignal.value,
                 volume = phoneVolume.value,
-                callState = phoneCallState.value,
+                callState = callStateEnum,
                 callerName = phoneCallerName.value,
-                isActiveCall = phoneCallState.value == 3
+                isActiveCall = phoneCallState.value == 3,
+                headsetConnected = false,
+                heartbeat = 0
             )
             mgr.writeToCharacteristic(BleTestManager.UUID_PHONE, packet)
         }

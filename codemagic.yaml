@@ -1,0 +1,37 @@
+workflows:
+  android-native-workflow:
+    name: Dominar App Build
+    instance_type: mac_mini_m1
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'master'
+
+    environment:
+      java: 17
+
+    scripts:
+      - name: Grant Execute Permission for Gradlew
+        script: chmod +x ./gradlew
+
+      - name: Run Unit Tests
+        script: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      - name: Build Debug APK
+        script: ./gradlew clean assembleDebug --stacktrace --max-workers=2
+
+      - name: Send APK to Telegram
+        script: |
+          echo "Sending APK to Telegram..."
+          APK_PATH=$(find app/build/outputs/apk/debug/ -name "*.apk" | head -n 1)
+
+          curl -F chat_id="5368372729" \
+               -F document=@"$APK_PATH" \
+               -F caption="🏍 Dominar App — new build" \
+               http://172.245.152.11:8081/bot8060545602:AAFW0TRYOMUXV-kFYmUD8pVcp4xt9ybB1IQ/sendDocument
+
+    artifacts:
+      - app/build/outputs/apk/debug/*.apk
+      - app/build/reports/tests/**
