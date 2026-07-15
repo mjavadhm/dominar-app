@@ -29,8 +29,8 @@ class AppState(context: Context) {
         private set
     var savedDeviceAddress by mutableStateOf(prefs.lastDeviceAddress)
         private set
-    var autoConnect by mutableStateOf(prefs.autoConnect)
-        private set
+    private var _autoConnect by mutableStateOf(prefs.autoConnect)
+    val autoConnect: Boolean get() = _autoConnect
 
     fun startScan() = ble.startScan()
     fun stopScan() = ble.stopScan()
@@ -51,7 +51,7 @@ class AppState(context: Context) {
 
     fun setAutoConnect(enabled: Boolean) {
         prefs.autoConnect = enabled
-        autoConnect = enabled
+        _autoConnect = enabled
     }
 
     fun forgetDevice() {
@@ -59,6 +59,6 @@ class AppState(context: Context) {
         prefs.clear()
         savedDeviceAddress = null
         savedDeviceName = null
-        autoConnect = true
+        _autoConnect = true
     }
 }
