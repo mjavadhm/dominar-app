@@ -12,6 +12,7 @@ import java.util.UUID
 
 class BleTestViewModel : ViewModel() {
     private var bleManager: BleConnectionManager? = null
+    private var appContext: Context? = null
 
     val connectionState get() = bleManager?.connectionState ?: MutableStateFlow(BleConnectionManager.ConnectionState.Disconnected)
     val logs get() = bleManager?.logs ?: MutableStateFlow(emptyList())
@@ -41,14 +42,28 @@ class BleTestViewModel : ViewModel() {
 
     fun initManager(context: Context) {
         if (bleManager == null) {
-            bleManager = BleConnectionManager(context, viewModelScope)
+            appContext = context.applicationContext
+            bleManager = com.dominar.ride.ble.BleManagerHolder.get(context)
         }
     }
 
     fun startScan() = bleManager?.startScan()
     fun stopScan() = bleManager?.stopScan()
-    fun connectToDevice(device: BluetoothDevice) = bleManager?.connect(device)
-    fun disconnect() = bleManager?.disconnect()
+    
+    @android.annotation.SuppressLint("MissingPermission")
+    fun connectToDevice(device: BluetoothDevice) {
+        appContext?.let { ctx ->
+            val prefs = com.dominar.ride.data.DevicePrefs(ctx)
+            prefs.lastDeviceAddress = device.address
+            prefs.lastDeviceName = try { device.name } catch (e: SecurityException) { null }
+            com.dominar.ride.service.DominarService.start(ctx)
+        }
+        bleManager?.connect(device)
+    }
+
+    fun disconnect() {
+        appContext?.let { com.dominar.ride.service.DominarService.stop(it) }
+    }
 
     fun sendNavPacket() {
         bleManager?.let { mgr ->
