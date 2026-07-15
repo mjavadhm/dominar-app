@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         requestRuntimeEssentials()
+        requestPhonePermissions()
     }
 
     private fun requestRuntimeEssentials() {
@@ -75,6 +76,25 @@ class MainActivity : ComponentActivity() {
                 Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                     android.net.Uri.parse("package:$packageName"))
             )
+        }
+    }
+
+    private fun requestPhonePermissions() {
+        val needed = arrayOf(
+            android.Manifest.permission.READ_PHONE_STATE,
+            android.Manifest.permission.READ_CALL_LOG,
+            android.Manifest.permission.READ_CONTACTS,
+            android.Manifest.permission.ANSWER_PHONE_CALLS
+        ).filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), 101)
+
+        // دسترسی Notification Listener جداست و باید از تنظیمات فعال شود
+        val enabled = androidx.core.app.NotificationManagerCompat
+            .getEnabledListenerPackages(this)
+        if (!enabled.contains(packageName)) {
+            startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
     }
 }

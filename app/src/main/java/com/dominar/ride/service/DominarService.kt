@@ -23,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import com.dominar.ride.phone.CallMonitor
 
 /**
  * Foreground service that keeps the BLE connection to the cluster alive
@@ -51,6 +52,7 @@ class DominarService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var stateJob: Job? = null
+    private var callMonitor: CallMonitor? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -69,11 +71,24 @@ class DominarService : Service() {
 
         startAsForeground("Starting...")
         observeConnectionState()
+        
+        if (callMonitor == null) {
+            val monitor = CallMonitor(this, BleManagerHolder.get(this), serviceScope)
+            monitor.start()
+            callMonitor = monitor
+            serviceScope.launch {
+                BleManagerHolder.get(this@DominarService).controlPackets.collect {
+                    callMonitor?.handleControl(it)
+                }
+            }
+        }
+
         autoConnectIfPossible()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        callMonitor?.stop()
         serviceScope.cancel()
         super.onDestroy()
     }
