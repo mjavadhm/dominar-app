@@ -13,8 +13,11 @@ workflows:
       java: 17
 
     scripts:
-      - name: Grant Execute Permission for Gradlew
-        script: chmod +x ./gradlew
+      - name: Bootstrap Gradle Wrapper
+        script: |
+          curl -sL -o gradlew https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradlew
+          curl -sL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
 
       - name: Run Unit Tests
         script: ./gradlew :app:testDebugUnitTest --stacktrace
