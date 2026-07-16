@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import com.dominar.ride.ui.AppState
 import com.dominar.ride.ui.screens.ActiveRideScreen
 import com.dominar.ride.ui.screens.BleTestScreen
+import com.dominar.ride.ui.screens.ClusterTestScreen
 import com.dominar.ride.ui.screens.BleTestViewModel
 import com.dominar.ride.ui.screens.HomeScreen
 import com.dominar.ride.ui.theme.DominarRideTheme
@@ -54,10 +55,14 @@ class MainActivity : ComponentActivity() {
                                 viewModel = bleTestViewModel,
                                 onBack = { currentScreen = "home" }
                             )
+                            "clustertest" -> ClusterTestScreen(
+                                onBack = { currentScreen = "home" }
+                            )
                             else -> HomeScreen(
                                 app = appState,
                                 onStartRide = { currentScreen = "ride" },
-                                onOpenBleTest = { currentScreen = "bletest" }
+                                onOpenBleTest = { currentScreen = "bletest" },
+                                onOpenClusterTest = { currentScreen = "clustertest" }
                             )
                         }
                     }

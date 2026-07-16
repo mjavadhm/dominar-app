@@ -43,7 +43,8 @@ private fun statusOf(state: ConnectionState): Pair<String, Color> = when (state)
 fun HomeScreen(
     app: AppState,
     onStartRide: () -> Unit,
-    onOpenBleTest: () -> Unit = {}
+    onOpenBleTest: () -> Unit = {},
+    onOpenClusterTest: () -> Unit = {}
 ) {
     val state by app.connectionState.collectAsState()
     val logs by app.logs.collectAsState()
@@ -62,7 +63,7 @@ fun HomeScreen(
             .padding(horizontal = 16.dp)
             .padding(bottom = 24.dp)
     ) {
-        HomeHeader(state = state, onOpenBleTest = onOpenBleTest)
+        HomeHeader(state = state, onOpenBleTest = onOpenBleTest, onOpenClusterTest = onOpenClusterTest)
         VehicleCard(app = app, state = state)
         Spacer(Modifier.height(16.dp))
         ConnectionCard(app = app, state = state, onPickDevice = { showPicker = true })
@@ -74,7 +75,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HomeHeader(state: ConnectionState, onOpenBleTest: () -> Unit) {
+private fun HomeHeader(state: ConnectionState, onOpenBleTest: () -> Unit, onOpenClusterTest: () -> Unit) {
     val (_, statusColor) = statusOf(state)
     Row(
         modifier = Modifier
@@ -101,16 +102,28 @@ private fun HomeHeader(state: ConnectionState, onOpenBleTest: () -> Unit) {
                 color = MaterialTheme.colorScheme.onBackground
             )
         }
-        // Developer tools (BLE test) entry
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface)
-                .clickable { onOpenBleTest() },
-            contentAlignment = Alignment.Center
-        ) {
-            Text("📡", fontSize = 18.sp)
+        // Developer tools
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable { onOpenClusterTest() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("🧪", fontSize = 18.sp)
+            }
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable { onOpenBleTest() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("📡", fontSize = 18.sp)
+            }
         }
     }
 }
