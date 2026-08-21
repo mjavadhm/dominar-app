@@ -20,9 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.dominar.ride.ui.AppState
 import com.dominar.ride.ui.screens.ActiveRideScreen
-import com.dominar.ride.ui.screens.BleTestScreen
-import com.dominar.ride.ui.screens.ClusterTestScreen
-import com.dominar.ride.ui.screens.BleTestViewModel
 import com.dominar.ride.ui.screens.HomeScreen
 import com.dominar.ride.ui.theme.DominarRideTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -35,7 +32,6 @@ class MainActivity : ComponentActivity() {
             DominarRideTheme {
                 var currentScreen by remember { mutableStateOf("home") }
                 val appState = remember { AppState(applicationContext) }
-                val bleTestViewModel = remember { BleTestViewModel() }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
                     AnimatedContent(
@@ -51,18 +47,9 @@ class MainActivity : ComponentActivity() {
                                 app = appState,
                                 onStopRide = { currentScreen = "home" }
                             )
-                            "bletest" -> BleTestScreen(
-                                viewModel = bleTestViewModel,
-                                onBack = { currentScreen = "home" }
-                            )
-                            "clustertest" -> ClusterTestScreen(
-                                onBack = { currentScreen = "home" }
-                            )
                             else -> HomeScreen(
                                 app = appState,
-                                onStartRide = { currentScreen = "ride" },
-                                onOpenBleTest = { currentScreen = "bletest" },
-                                onOpenClusterTest = { currentScreen = "clustertest" }
+                                onStartRide = { currentScreen = "ride" }
                             )
                         }
                     }
@@ -71,7 +58,7 @@ class MainActivity : ComponentActivity() {
         }
         requestRuntimeEssentials()
         requestPhonePermissions()
-        requestBluetoothPermissions()
+        requestBluetoothAndLocationPermissions()
     }
 
     private fun requestRuntimeEssentials() {
@@ -110,14 +97,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestBluetoothPermissions() {
-        val needed = if (Build.VERSION.SDK_INT >= 31) {
-            arrayOf(
-                android.Manifest.permission.BLUETOOTH_SCAN,
-                android.Manifest.permission.BLUETOOTH_CONNECT
-            )
-        } else {
-            arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+    private fun requestBluetoothAndLocationPermissions() {
+        val needed = buildList {
+            if (Build.VERSION.SDK_INT >= 31) {
+                add(android.Manifest.permission.BLUETOOTH_SCAN)
+                add(android.Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            // Needed for the map's my-location feature on every API level.
+            add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+            add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
         }.filter {
             checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
         }

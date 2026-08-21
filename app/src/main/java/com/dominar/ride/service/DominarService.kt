@@ -1,5 +1,6 @@
 package com.dominar.ride.service
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -28,6 +29,9 @@ import com.dominar.ride.phone.CallMonitor
 /**
  * Foreground service that keeps the BLE connection to the cluster alive
  * while the app is in background / closed.
+ *
+ * The persistent notification has a "Stop & disconnect" action so the rider
+ * can fully shut the service down (and save battery) without opening the app.
  */
 class DominarService : Service() {
 
@@ -63,6 +67,7 @@ class DominarService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            stateJob?.cancel()
             BleManagerHolder.get(this).disconnect()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -145,8 +150,13 @@ class DominarService : Service() {
         }
     }
 
-    private fun buildNotification(text: String) =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(text: String): Notification {
+        val stopPendingIntent = PendingIntent.getService(
+            this, 1,
+            Intent(this, DominarService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Dominar")
             .setContentText(text)
@@ -159,7 +169,9 @@ class DominarService : Service() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
             )
+            .addAction(0, "Stop & disconnect", stopPendingIntent)
             .build()
+    }
 
     private fun startAsForeground(text: String) {
         val notification = buildNotification(text)
