@@ -82,7 +82,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
     implementation("androidx.activity:activity-compose:1.9.2")
 
-    // Compose BOM (2024.09.00 aligns with Kotlin 2.0 / Compose 1.7)
+    // Compose BOM (2024.09.00 aligns with Kotlin 2.0+ / Compose 1.7)
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -98,9 +98,9 @@ dependencies {
     // Compose Navigation
     implementation("androidx.navigation:navigation-compose:2.8.1")
 
-    // Hilt For DI (2.54 is compatible with Kotlin 2.0 + Gradle 8.9)
-    implementation("com.google.dagger:hilt-android:2.54")
-    kapt("com.google.dagger:hilt-compiler:2.54")
+    // Hilt For DI (2.57.1 is compatible with Kotlin 2.2)
+    implementation("com.google.dagger:hilt-android:2.57.1")
+    kapt("com.google.dagger:hilt-compiler:2.57.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     // Coroutines
