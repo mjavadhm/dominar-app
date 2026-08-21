@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,18 @@ plugins {
     id("kotlin-kapt")
     id("com.google.dagger.hilt.android")
 }
+
+// Neshan web-services API key (search / reverse geocode / routing).
+// Resolution order: local.properties > gradle property > environment variable.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val neshanApiKey: String =
+    localProperties.getProperty("NESHAN_API_KEY")
+        ?: (project.findProperty("NESHAN_API_KEY") as String?)
+        ?: System.getenv("NESHAN_API_KEY")
+        ?: ""
 
 android {
     namespace = "com.dominar.ride"
@@ -16,6 +30,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "NESHAN_API_KEY", "\"$neshanApiKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -41,6 +57,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     // NOTE: composeOptions.kotlinCompilerExtensionVersion is NOT needed with Kotlin 2.0+
     // The compose compiler is now bundled and managed via the kotlin.plugin.compose plugin.

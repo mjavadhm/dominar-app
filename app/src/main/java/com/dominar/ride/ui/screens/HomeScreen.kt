@@ -42,9 +42,7 @@ private fun statusOf(state: ConnectionState): Pair<String, Color> = when (state)
 @Composable
 fun HomeScreen(
     app: AppState,
-    onStartRide: () -> Unit,
-    onOpenBleTest: () -> Unit = {},
-    onOpenClusterTest: () -> Unit = {}
+    onStartRide: () -> Unit
 ) {
     val state by app.connectionState.collectAsState()
     val logs by app.logs.collectAsState()
@@ -63,7 +61,7 @@ fun HomeScreen(
             .padding(horizontal = 16.dp)
             .padding(bottom = 24.dp)
     ) {
-        HomeHeader(state = state, onOpenBleTest = onOpenBleTest, onOpenClusterTest = onOpenClusterTest)
+        HomeHeader(state = state)
         VehicleCard(app = app, state = state)
         Spacer(Modifier.height(16.dp))
         ConnectionCard(app = app, state = state, onPickDevice = { showPicker = true })
@@ -75,7 +73,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HomeHeader(state: ConnectionState, onOpenBleTest: () -> Unit, onOpenClusterTest: () -> Unit) {
+private fun HomeHeader(state: ConnectionState) {
     val (_, statusColor) = statusOf(state)
     Row(
         modifier = Modifier
@@ -101,29 +99,6 @@ private fun HomeHeader(state: ConnectionState, onOpenBleTest: () -> Unit, onOpen
                 letterSpacing = 3.sp,
                 color = MaterialTheme.colorScheme.onBackground
             )
-        }
-        // Developer tools
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .clickable { onOpenClusterTest() },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("🧪", fontSize = 18.sp)
-            }
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .clickable { onOpenBleTest() },
-                contentAlignment = Alignment.Center
-            ) {
-                Text("📡", fontSize = 18.sp)
-            }
         }
     }
 }
@@ -300,7 +275,7 @@ private fun StartRideButton(onStartRide: () -> Unit) {
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
     ) {
-        Text("🏍", fontSize = 18.sp)
+        Text("\uD83C\uDFCD", fontSize = 18.sp)
         Spacer(Modifier.width(8.dp))
         Text("Start Ride", fontSize = 17.sp, fontWeight = FontWeight.Bold)
     }
@@ -403,7 +378,7 @@ private fun DevicePickerSheet(app: AppState, onDismiss: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("🏍", fontSize = 20.sp)
+                    Text("\uD83C\uDFCD", fontSize = 20.sp)
                     Column {
                         Text(
                             text = deviceName ?: "Unknown device",
