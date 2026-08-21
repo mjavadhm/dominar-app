@@ -34,7 +34,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.DominarRide"
         tools:targetApi="31">
-        
+
+        <!-- Neshan MapLibre SDK key (injected from NESHAN_SDK_KEY, see README) -->
+        <meta-data
+            android:name="org.maplibre.android.API_KEY"
+            android:value="${NESHAN_SDK_KEY}" />
+
         <service
             android:name=".service.DominarService"
             android:exported="false"

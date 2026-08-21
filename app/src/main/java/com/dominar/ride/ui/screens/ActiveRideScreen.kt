@@ -1,10 +1,10 @@
 package com.dominar.ride.ui.screens
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.view.ContextThemeWrapper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -27,16 +27,14 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.carto.graphics.Color as CartoColor
-import com.carto.styles.LineStyle
-import com.carto.styles.LineStyleBuilder
-import com.carto.styles.MarkerStyleBuilder
-import com.carto.utils.BitmapUtils
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.dominar.ride.BuildConfig
 import com.dominar.ride.ble.BleConnectionManager.ConnectionState
 import com.dominar.ride.navigation.NavPlace
@@ -47,25 +45,32 @@ import com.dominar.ride.ui.theme.*
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
-import kotlin.math.asin
-import kotlin.math.cos
-import kotlin.math.pow
-import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.neshan.common.model.LatLng
-import org.neshan.mapsdk.MapView
-import org.neshan.mapsdk.model.Marker
-import org.neshan.mapsdk.model.Polyline
+import org.maplibre.android.MapLibre
+import org.maplibre.android.annotations.IconFactory
+import org.maplibre.android.annotations.Marker
+import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.Polyline
+import org.maplibre.android.annotations.PolylineOptions
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
 
 private enum class EndpointField { ORIGIN, DESTINATION }
 
+private const val NESHAN_STYLE_URI =
+    "https://static.neshan.org/sdk/maplibre/styles/light.json"
+
 /**
- * Google-Maps-style navigation screen backed by the Neshan map SDK and
- * Neshan web services (search / reverse geocode / motorcycle routing).
+ * Google-Maps-style navigation screen backed by the new MapLibre-based Neshan
+ * SDK and Neshan web services (search / reverse geocode / motorcycle routing).
  *
  * - Starts centered on the rider's current GPS location.
  * - "Where to?" search bar picks a destination; origin defaults to your location.
@@ -75,14 +80,16 @@ private enum class EndpointField { ORIGIN, DESTINATION }
 @Composable
 fun ActiveRideScreen(app: AppState, onStopRide: () -> Unit) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val connState by app.connectionState.collectAsState()
 
+    // --- Map ---
     val mapView = remember {
-        val themed =
-            ContextThemeWrapper(context, androidx.appcompat.R.style.Theme_AppCompat_Light)
-        MapView(themed).apply { setZoom(15f, 0f) }
+        MapLibre.getInstance(context)
+        MapView(context).apply { onCreate(null) }
     }
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
 
     // --- Navigation state ---
     var myLocation by remember { mutableStateOf<LatLng?>(null) }
@@ -105,12 +112,14 @@ fun ActiveRideScreen(app: AppState, onStopRide: () -> Unit) {
     var routeLine by remember { mutableStateOf<Polyline?>(null) }
 
     fun clearRouteOverlay() {
-        routeLine?.let { mapView.removePolyline(it) }
+        val m = map
+        routeLine?.let { m?.removePolyline(it) }
         routeLine = null
         route = null
     }
 
     fun fetchRoute() {
+        val m = map ?: return
         val dest = destination ?: return
         val start = origin?.location ?: myLocation
         if (start == null) {
@@ -127,10 +136,17 @@ fun ActiveRideScreen(app: AppState, onStopRide: () -> Unit) {
             result.onSuccess { r ->
                 clearRouteOverlay()
                 route = r
-                val line = Polyline(ArrayList(r.points), routeLineStyle())
-                mapView.addPolyline(line)
-                routeLine = line
-                fitCamera(mapView, start, dest.location)
+                routeLine = m.addPolyline(
+                    PolylineOptions()
+                        .addAll(r.points)
+                        .color(android.graphics.Color.rgb(30, 118, 255))
+                        .width(6f)
+                )
+                val bounds = LatLngBounds.Builder()
+                    .include(start)
+                    .include(dest.location)
+                    .build()
+                m.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150))
             }.onFailure { e ->
                 error = e.message ?: "Routing failed"
             }
@@ -138,47 +154,50 @@ fun ActiveRideScreen(app: AppState, onStopRide: () -> Unit) {
     }
 
     fun setDestination(place: NavPlace?) {
+        val m = map ?: return
         destination = place
-        destMarker?.let { mapView.removeMarker(it) }
+        destMarker?.let { m.removeMarker(it) }
         destMarker = null
         clearRouteOverlay()
         if (place != null) {
-            val m = markerOf(place.location, pinBitmap(0xFFE53935.toInt()), 32f)
-            mapView.addMarker(m)
-            destMarker = m
-            mapView.moveCamera(place.location, 0.3f)
+            destMarker = m.addMarker(
+                markerOptions(context, place.location, pinBitmap(0xFFE53935.toInt()))
+            )
+            m.animateCamera(CameraUpdateFactory.newLatLngZoom(place.location, 14.5))
             fetchRoute()
         }
     }
 
     fun setOrigin(place: NavPlace?) {
+        val m = map ?: return
         origin = place
-        originMarker?.let { mapView.removeMarker(it) }
+        originMarker?.let { m.removeMarker(it) }
         originMarker = null
         clearRouteOverlay()
         if (place != null) {
-            val m = markerOf(place.location, pinBitmap(0xFF2E7D32.toInt()), 28f)
-            mapView.addMarker(m)
-            originMarker = m
+            originMarker = m.addMarker(
+                markerOptions(context, place.location, pinBitmap(0xFF2E7D32.toInt()))
+            )
         }
         if (destination != null) fetchRoute()
     }
 
     fun swapEndpoints() {
+        val m = map ?: return
         val dest = destination ?: return
         val newDestination = origin
             ?: myLocation?.let { NavPlace("Your location", null, it) }
             ?: return
         origin = dest
         destination = newDestination
-        originMarker?.let { mapView.removeMarker(it) }
-        destMarker?.let { mapView.removeMarker(it) }
-        val om = markerOf(dest.location, pinBitmap(0xFF2E7D32.toInt()), 28f)
-        mapView.addMarker(om)
-        originMarker = om
-        val dm = markerOf(newDestination.location, pinBitmap(0xFFE53935.toInt()), 32f)
-        mapView.addMarker(dm)
-        destMarker = dm
+        originMarker?.let { m.removeMarker(it) }
+        destMarker?.let { m.removeMarker(it) }
+        originMarker = m.addMarker(
+            markerOptions(context, dest.location, pinBitmap(0xFF2E7D32.toInt()))
+        )
+        destMarker = m.addMarker(
+            markerOptions(context, newDestination.location, pinBitmap(0xFFE53935.toInt()))
+        )
         clearRouteOverlay()
         fetchRoute()
     }
@@ -195,32 +214,61 @@ fun ActiveRideScreen(app: AppState, onStopRide: () -> Unit) {
             }
             val ll = LatLng(loc.latitude, loc.longitude)
             myLocation = ll
-            myMarker?.let { mapView.removeMarker(it) }
-            val m = markerOf(ll, dotBitmap(0xFF1E76FF.toInt(), 0xFFFFFFFF.toInt()), 20f)
-            mapView.addMarker(m)
-            myMarker = m
+            val m = map ?: return@addOnSuccessListener
+            myMarker?.let { m.removeMarker(it) }
+            myMarker = m.addMarker(
+                markerOptions(context, ll, dotBitmap(0xFF1E76FF.toInt(), 0xFFFFFFFF.toInt()))
+            )
             if (recenter) {
-                mapView.moveCamera(ll, 0.3f)
-                mapView.setZoom(15.5f, 0.3f)
+                m.animateCamera(CameraUpdateFactory.newLatLngZoom(ll, 15.5))
             }
         }.addOnFailureListener {
             if (recenter) error = "Location unavailable — check the location permission"
         }
     }
 
-    // Center on the rider as soon as the screen opens (like Google Maps),
-    // and let a long-press drop a pin for the field being edited.
+    // Forward the activity lifecycle to the MapView (required by MapLibre).
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapView.onDestroy()
+        }
+    }
+
+    // Initialize the map: Neshan style, initial camera, long-press pin drop.
     LaunchedEffect(Unit) {
-        locateMe(recenter = true)
-        mapView.setOnMapLongClickListener { latLng ->
-            scope.launch {
+        mapView.getMapAsync { m ->
+            m.setStyle(Style.Builder().fromUri(NESHAN_STYLE_URI)) {
+                m.cameraPosition = CameraPosition.Builder()
+                    .target(myLocation ?: LatLng(35.6892, 51.3890)) // Tehran fallback
+                    .zoom(11.0)
+                    .build()
+                map = m
+            }
+            m.addOnMapLongClickListener { latLng ->
                 val target = editingField
                 editingField = null
                 query = ""
                 val place = NavPlace("Dropped pin", null, latLng)
                 if (target == EndpointField.ORIGIN) setOrigin(place) else setDestination(place)
+                true
             }
         }
+    }
+
+    // Center on the rider as soon as the map is ready (like Google Maps).
+    LaunchedEffect(map) {
+        if (map != null) locateMe(recenter = true)
     }
 
     // Debounced search-as-you-type.
@@ -365,11 +413,11 @@ fun ActiveRideScreen(app: AppState, onStopRide: () -> Unit) {
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
-            if (BuildConfig.NESHAN_API_KEY.isBlank()) {
+            if (BuildConfig.NESHAN_SDK_KEY.isBlank() || BuildConfig.NESHAN_API_KEY.isBlank()) {
                 Spacer(Modifier.height(8.dp))
                 InfoBanner(
-                    "Search & routing need a Neshan API key. " +
-                        "Add NESHAN_API_KEY to local.properties (see README)."
+                    "Neshan keys missing: add NESHAN_SDK_KEY (map) and NESHAN_API_KEY " +
+                        "(search & routing) to local.properties — see README."
                 )
             }
             error?.let { msg ->
@@ -791,72 +839,33 @@ private fun ErrorBanner(text: String, onDismiss: () -> Unit) {
 // Map helpers
 // ---------------------------------------------------------------------------
 
-private fun markerOf(latLng: LatLng, bitmap: Bitmap, size: Float): Marker {
-    val style = MarkerStyleBuilder().apply {
-        this.size = size
-        this.bitmap = BitmapUtils.createBitmapFromAndroidBitmap(bitmap)
-    }.buildStyle()
-    return Marker(latLng, style)
-}
-
-private fun routeLineStyle(): LineStyle =
-    LineStyleBuilder().apply {
-        color = CartoColor(30.toShort(), 118.toShort(), 255.toShort(), 235.toShort())
-        width = 8f
-    }.buildStyle()
+private fun markerOptions(context: Context, latLng: LatLng, bitmap: Bitmap): MarkerOptions =
+    MarkerOptions()
+        .position(latLng)
+        .icon(IconFactory.getInstance(context).fromBitmap(bitmap))
 
 /** Blue dot with a white ring — the rider's current position. */
 private fun dotBitmap(fill: Int, ring: Int): Bitmap {
-    val size = 96
+    val size = 72
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bmp)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     paint.color = ring
-    canvas.drawCircle(48f, 48f, 44f, paint)
+    canvas.drawCircle(36f, 36f, 34f, paint)
     paint.color = fill
-    canvas.drawCircle(48f, 48f, 32f, paint)
+    canvas.drawCircle(36f, 36f, 24f, paint)
     return bmp
 }
 
 /** Filled circle with a white center — origin/destination pin. */
 private fun pinBitmap(color: Int): Bitmap {
-    val size = 96
+    val size = 72
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bmp)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     paint.color = color
-    canvas.drawCircle(48f, 48f, 44f, paint)
+    canvas.drawCircle(36f, 36f, 34f, paint)
     paint.color = android.graphics.Color.WHITE
-    canvas.drawCircle(48f, 48f, 16f, paint)
+    canvas.drawCircle(36f, 36f, 12f, paint)
     return bmp
-}
-
-private fun fitCamera(mapView: MapView, a: LatLng, b: LatLng) {
-    val mid = LatLng(
-        (a.latitude + b.latitude) / 2.0,
-        (a.longitude + b.longitude) / 2.0
-    )
-    val km = haversineKm(a, b)
-    val zoom = when {
-        km < 1 -> 14.5f
-        km < 3 -> 13.5f
-        km < 7 -> 12.5f
-        km < 15 -> 11.5f
-        km < 40 -> 10.5f
-        km < 100 -> 9f
-        km < 300 -> 7.5f
-        else -> 6f
-    }
-    mapView.moveCamera(mid, 0.4f)
-    mapView.setZoom(zoom, 0.4f)
-}
-
-private fun haversineKm(a: LatLng, b: LatLng): Double {
-    val earthRadiusKm = 6371.0
-    val dLat = Math.toRadians(b.latitude - a.latitude)
-    val dLon = Math.toRadians(b.longitude - a.longitude)
-    val h = sin(dLat / 2).pow(2) +
-        cos(Math.toRadians(a.latitude)) * cos(Math.toRadians(b.latitude)) *
-        sin(dLon / 2).pow(2)
-    return 2 * earthRadiusKm * asin(sqrt(h))
 }

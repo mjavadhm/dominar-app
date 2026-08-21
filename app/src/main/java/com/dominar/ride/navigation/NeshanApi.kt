@@ -2,7 +2,7 @@ package com.dominar.ride.navigation
 
 import com.dominar.ride.BuildConfig
 import org.json.JSONObject
-import org.neshan.common.model.LatLng
+import org.maplibre.android.geometry.LatLng
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder

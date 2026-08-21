@@ -8,17 +8,24 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
-// Neshan web-services API key (search / reverse geocode / routing).
+// Neshan keys (https://platform.neshan.org):
+// - NESHAN_SDK_KEY: map SDK key (registered with package name + SHA1), injected
+//   into AndroidManifest as org.maplibre.android.API_KEY.
+// - NESHAN_API_KEY: web-services key (search / reverse geocode / routing).
 // Resolution order: local.properties > gradle property > environment variable.
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
-val neshanApiKey: String =
-    localProperties.getProperty("NESHAN_API_KEY")
-        ?: (project.findProperty("NESHAN_API_KEY") as String?)
-        ?: System.getenv("NESHAN_API_KEY")
+
+fun secret(name: String): String =
+    localProperties.getProperty(name)
+        ?: (project.findProperty(name) as String?)
+        ?: System.getenv(name)
         ?: ""
+
+val neshanApiKey = secret("NESHAN_API_KEY")
+val neshanSdkKey = secret("NESHAN_SDK_KEY")
 
 android {
     namespace = "com.dominar.ride"
@@ -32,6 +39,8 @@ android {
         versionName = "1.0"
 
         buildConfigField("String", "NESHAN_API_KEY", "\"$neshanApiKey\"")
+        buildConfigField("String", "NESHAN_SDK_KEY", "\"$neshanSdkKey\"")
+        manifestPlaceholders["NESHAN_SDK_KEY"] = neshanSdkKey
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -97,17 +106,12 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Neshan Map SDK
-    implementation("neshan-android-sdk:mobile-sdk:1.0.1")
-    implementation("neshan-android-sdk:services-sdk:1.0.0")
-    implementation("neshan-android-sdk:common-sdk:0.0.2")
-    
-    // Required by Neshan Map SDK
+    // Neshan map SDK (new MapLibre-based SDK, published on Maven Central)
+    implementation("org.neshan.maplibre:android-sdk-opengl:13.4.1")
+
     implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.google.android.material:material:1.11.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

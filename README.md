@@ -20,42 +20,53 @@ switchgear.
 - 📞 Calls on the cluster: caller name, missed calls, accept/reject from the
   bike's controls
 - 💬 Mirrors all phone notifications (SMS & WhatsApp with dedicated cluster icons)
-- 🗺 Built-in **Neshan** navigation with a Google-Maps-style UI: place search,
-  origin/destination picking (origin defaults to your GPS location), long-press
-  to drop a pin, motorcycle routing with distance & ETA
+- 🗺 Built-in **Neshan** navigation (new MapLibre-based SDK) with a
+  Google-Maps-style UI: place search, origin/destination picking (origin
+  defaults to your GPS location), long-press to drop a pin, motorcycle routing
+  with distance & ETA
 
 ## Neshan setup (required for maps & navigation)
 
-The app is fully wired to [Neshan Platform](https://platform.neshan.org/api/) —
-you only need to add your own credentials:
+The app uses the new [MapLibre-based Neshan Android SDK](https://platform.neshan.org/docs/sdk/android/installation/)
+— **no license file needed**, just two API keys from the
+[Neshan developers panel](https://platform.neshan.org/panel):
 
-### 1. Map license (SDK key) — renders the map tiles
+### 1. SDK key — renders the map tiles
 
-1. In the [Neshan developers panel](https://platform.neshan.org/) create an
-   **Android SDK** key registered with:
+1. Create an **Android SDK** key registered with:
    - package name: `com.dominar.ride`
    - the **SHA1** of the keystore that signs your APK
-     (for debug builds: `keytool -list -v -keystore ~/.android/debug.keystore`
-     with password `android`; for Codemagic builds use the SHA1 of the keystore
-     Codemagic signs with)
-2. Download the license file from the panel and place it in
-   `app/src/main/res/raw/` (keep the file name the panel gives you).
+2. Enable the **MapLibre mobile tile services** for the key
+   (تایل نقشه / poi / ترافیک موبایل — کیت توسعه maplibre).
+3. Put it in `local.properties`:
+
+   ```properties
+   NESHAN_SDK_KEY=your.sdk.key
+   ```
+
+   It is injected into the manifest as `org.maplibre.android.API_KEY` at build
+   time, so it is never committed to git.
 
 ### 2. Web API key — search, reverse-geocode & routing
 
 1. Create a **Web service** (وب سرویس) key in the same panel.
-2. Put it in `local.properties` (never committed to git):
+2. Add it to `local.properties`:
 
    ```properties
    NESHAN_API_KEY=service.xxxxxxxxxxxxxxxx
    ```
 
-   On CI (Codemagic) define an environment variable named `NESHAN_API_KEY`
-   instead — the build picks it up automatically. Passing
-   `-PNESHAN_API_KEY=...` to Gradle also works.
+Both keys resolve in this order: `local.properties` > Gradle property
+(`-PNESHAN_SDK_KEY=...`) > environment variable. On CI (Codemagic) define
+`NESHAN_SDK_KEY` and `NESHAN_API_KEY` as environment variables.
 
-If the key is missing the app still builds and runs; the navigation screen
-shows a banner explaining that search & routing are disabled.
+If a key is missing the app still builds and runs; the navigation screen shows
+a banner explaining what to configure.
+
+> **Signing note:** the SDK key is validated against the signing certificate's
+> SHA1. CI machines generate a fresh debug keystore per build, so commit a
+> fixed debug keystore (e.g. `keystore/debug.keystore`) and wire it into
+> `signingConfigs` to keep the SHA1 stable across local and CI builds.
 
 ## Architecture
 
