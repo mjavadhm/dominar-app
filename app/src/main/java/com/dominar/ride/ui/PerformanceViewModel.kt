@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -70,6 +71,20 @@ class PerformanceViewModel @Inject constructor(
     val leanAvailable: Boolean = rotationSensor != null || gravitySensor != null
 
     // ---------- Lean angle ----------
+    //
+    // Approach: track the world "up" direction expressed in the phone's own
+    // coordinate frame (third row of the rotation matrix — orientation-based,
+    // so centripetal acceleration mid-corner doesn't bend it like raw gravity
+    // would with an accelerometer alone).
+    //
+    // At calibration we freeze the bike's frame in phone coordinates:
+    //   upDev    = where world-up is when the bike is upright
+    //   rightDev = the bike's right-hand axis
+    // Lean is then ONLY the rotation of world-up around the bike's roll axis:
+    //   lean = atan2(-(g · rightDev), g · upDev)
+    // Pitch movement (bumps, braking dive, slopes, wheelies) shifts g along the
+    // forward axis, which this formula ignores by construction — unlike Euler
+    // roll, where pitch/yaw leak into the reading on a tilted mount.
 
     private val _leanDeg = MutableStateFlow(0f)
     /** Smoothed lean angle in degrees. Negative = left, positive = right. */
@@ -81,11 +96,13 @@ class PerformanceViewModel @Inject constructor(
     private val _maxLeanRight = MutableStateFlow(0f)
     val maxLeanRight: StateFlow<Float> = _maxLeanRight.asStateFlow()
 
-    private var rawRollDeg = 0f
-    private var zeroOffsetDeg = 0f
+    /** Bike frame in phone coordinates (defaults assume upright portrait mount). */
+    private var upDev = floatArrayOf(0f, 1f, 0f)
+    private var rightDev = floatArrayOf(1f, 0f, 0f)
+    private var lastGDev = floatArrayOf(0f, 1f, 0f)
+
     private var leanSensorActive = false
     private val rotationMatrix = FloatArray(9)
-    private val orientation = FloatArray(3)
 
     fun startLeanSensor() {
         if (leanSensorActive) return
@@ -101,9 +118,27 @@ class PerformanceViewModel @Inject constructor(
         leanSensorActive = false
     }
 
-    /** Store the current orientation as the zero point (phone fixed on its mount). */
+    /**
+     * Freeze the current orientation as "bike upright" (phone fixed on its mount).
+     * Rebuilds the bike's up/right axes in phone coordinates.
+     */
     fun calibrateLean() {
-        zeroOffsetDeg = rawRollDeg
+        val up = lastGDev.copyOf()
+        // Forward axis guess: out the back of the phone (screen facing the rider).
+        var forward = floatArrayOf(0f, 0f, -1f)
+        // Phone lying nearly flat on the mount → use the top edge as forward.
+        if (abs(dot(forward, up)) > 0.9f) forward = floatArrayOf(0f, 1f, 0f)
+        // Make forward perpendicular to up, then derive the right axis.
+        val d = dot(forward, up)
+        forward = normalize(
+            floatArrayOf(
+                forward[0] - d * up[0],
+                forward[1] - d * up[1],
+                forward[2] - d * up[2]
+            )
+        ) ?: return
+        rightDev = normalize(cross(forward, up)) ?: return
+        upDev = up
         _leanDeg.value = 0f
         _maxLeanLeft.value = 0f
         _maxLeanRight.value = 0f
@@ -114,16 +149,31 @@ class PerformanceViewModel @Inject constructor(
         _maxLeanRight.value = 0f
     }
 
-    private fun onRollSample(rollDeg: Float) {
-        rawRollDeg = rollDeg
-        var lean = rollDeg - zeroOffsetDeg
-        // Normalize to -180..180 so calibration near the wrap point behaves.
-        while (lean > 180f) lean -= 360f
-        while (lean < -180f) lean += 360f
+    private fun onGravitySample(gx: Float, gy: Float, gz: Float) {
+        val g = normalize(floatArrayOf(gx, gy, gz)) ?: return
+        lastGDev = g
+        val lean = Math.toDegrees(
+            atan2(-dot(g, rightDev).toDouble(), dot(g, upDev).toDouble())
+        ).toFloat()
         val smoothed = _leanDeg.value * 0.75f + lean * 0.25f
         _leanDeg.value = smoothed
         if (smoothed < -_maxLeanLeft.value) _maxLeanLeft.value = -smoothed
         if (smoothed > _maxLeanRight.value) _maxLeanRight.value = smoothed
+    }
+
+    private fun dot(a: FloatArray, b: FloatArray): Float =
+        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+    private fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+    )
+
+    private fun normalize(v: FloatArray): FloatArray? {
+        val n = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+        if (n < 1e-6f) return null
+        return floatArrayOf(v[0] / n, v[1] / n, v[2] / n)
     }
 
     // ---------- 0-100 timer ----------
@@ -300,18 +350,11 @@ class PerformanceViewModel @Inject constructor(
         when (event.sensor.type) {
             Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_ROTATION_VECTOR -> {
                 SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                SensorManager.getOrientation(rotationMatrix, orientation)
-                onRollSample(Math.toDegrees(orientation[2].toDouble()).toFloat())
+                // Third row of the rotation matrix = world-up in phone coordinates.
+                onGravitySample(rotationMatrix[6], rotationMatrix[7], rotationMatrix[8])
             }
             Sensor.TYPE_GRAVITY, Sensor.TYPE_ACCELEROMETER -> {
-                // Portrait mount assumption for the fallback path.
-                val x = event.values[0]
-                val y = event.values[1]
-                val z = event.values[2]
-                val roll = Math.toDegrees(
-                    atan2(-x.toDouble(), sqrt((y * y + z * z).toDouble()))
-                ).toFloat()
-                onRollSample(roll)
+                onGravitySample(event.values[0], event.values[1], event.values[2])
             }
             Sensor.TYPE_LINEAR_ACCELERATION -> {
                 if (_timerState.value is TimerState.Ready) {
