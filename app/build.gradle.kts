@@ -111,6 +111,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
+    // WorkManager (daily garage reminder checks)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // Neshan map SDK (new MapLibre-based SDK, published on Maven Central)
     implementation("org.neshan.maplibre:android-sdk-opengl:13.4.1")
 
