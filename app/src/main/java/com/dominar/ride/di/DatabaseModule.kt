@@ -3,6 +3,10 @@ package com.dominar.ride.di
 import android.content.Context
 import androidx.room.Room
 import com.dominar.ride.data.db.AppDatabase
+import com.dominar.ride.data.db.DocumentDao
+import com.dominar.ride.data.db.FuelLogDao
+import com.dominar.ride.data.db.ParkingDao
+import com.dominar.ride.data.db.ServiceIntervalDao
 import com.dominar.ride.data.db.ServiceLogDao
 import dagger.Module
 import dagger.Provides
@@ -24,4 +28,16 @@ object DatabaseModule {
 
     @Provides
     fun provideServiceLogDao(db: AppDatabase): ServiceLogDao = db.serviceLogDao()
+
+    @Provides
+    fun provideServiceIntervalDao(db: AppDatabase): ServiceIntervalDao = db.serviceIntervalDao()
+
+    @Provides
+    fun provideFuelLogDao(db: AppDatabase): FuelLogDao = db.fuelLogDao()
+
+    @Provides
+    fun provideDocumentDao(db: AppDatabase): DocumentDao = db.documentDao()
+
+    @Provides
+    fun provideParkingDao(db: AppDatabase): ParkingDao = db.parkingDao()
 }
