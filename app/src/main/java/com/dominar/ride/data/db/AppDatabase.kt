@@ -63,6 +63,18 @@ data class ParkingEntity(
     val auto: Boolean
 )
 
+/** One completed acceleration run (GPS + accelerometer measured). */
+@Entity(tableName = "performance_run")
+data class PerformanceRunEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** Milliseconds from launch to 60 km/h, null if not captured. */
+    val timeTo60Ms: Long?,
+    /** Milliseconds from launch to 100 km/h, null if the run stopped early. */
+    val timeTo100Ms: Long?,
+    /** Epoch millis of when the run happened. */
+    val timestamp: Long
+)
+
 @Dao
 interface ServiceLogDao {
     @Insert
@@ -132,15 +144,28 @@ interface ParkingDao {
     suspend fun clear()
 }
 
+@Dao
+interface PerformanceRunDao {
+    @Insert
+    suspend fun insert(run: PerformanceRunEntity): Long
+
+    @Delete
+    suspend fun delete(run: PerformanceRunEntity)
+
+    @Query("SELECT * FROM performance_run ORDER BY timestamp DESC")
+    fun observeAll(): Flow<List<PerformanceRunEntity>>
+}
+
 @Database(
     entities = [
         ServiceLogEntity::class,
         ServiceIntervalEntity::class,
         FuelLogEntity::class,
         DocumentEntity::class,
-        ParkingEntity::class
+        ParkingEntity::class,
+        PerformanceRunEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -149,4 +174,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun fuelLogDao(): FuelLogDao
     abstract fun documentDao(): DocumentDao
     abstract fun parkingDao(): ParkingDao
+    abstract fun performanceRunDao(): PerformanceRunDao
 }
