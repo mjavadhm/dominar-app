@@ -24,7 +24,9 @@ import com.dominar.ride.R
 import com.dominar.ride.ble.BleConnectionManager.ConnectionState
 import com.dominar.ride.ui.AppState
 import com.dominar.ride.ui.GarageViewModel
+import com.dominar.ride.ui.PerformanceViewModel
 import com.dominar.ride.ui.theme.*
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
@@ -33,11 +35,13 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenGarage: () -> Unit,
     onOpenPerformance: () -> Unit,
-    garage: GarageViewModel = hiltViewModel()
+    garage: GarageViewModel = hiltViewModel(),
+    performance: PerformanceViewModel = hiltViewModel()
 ) {
     val state by app.connectionState.collectAsState()
     val nextService by garage.nextService.collectAsState()
     val parking by garage.parking.collectAsState()
+    val bestRun by performance.bestRun.collectAsState()
 
     Column(
         modifier = Modifier
@@ -69,11 +73,14 @@ fun HomeScreen(
             onClick = onOpenGarage
         )
         Spacer(Modifier.height(10.dp))
+        val best = bestRun
         SummaryCard(
             emoji = "\u26A1",
             title = "Best 0\u2013100",
-            value = "No record yet",
-            hint = "Measure it in Performance",
+            value = best?.timeTo100Ms?.let { String.format(Locale.US, "%.2f s", it / 1000.0) }
+                ?: "No record yet",
+            hint = best?.let { "Set on ${formatDate(it.timestamp)}" }
+                ?: "Measure it in Performance",
             onClick = onOpenPerformance
         )
         Spacer(Modifier.height(10.dp))
