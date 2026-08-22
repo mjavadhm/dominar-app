@@ -232,7 +232,8 @@ private fun HudSection(app: AppState) {
         SwitchRow("Lean angle gauge", app.hudShowLeanAngle) { app.setHudShowLeanAngle(it) }
         SwitchRow("Next-turn banner", app.hudShowNextTurn) { app.setHudShowNextTurn(it) }
         Text(
-            text = "These overlays appear on the Ride screen (rolling out in upcoming updates).",
+            text = "These overlays appear on the Ride screen while a route is active. " +
+                "Turn-by-turn directions are also sent to the cluster when connected.",
             style = MaterialTheme.typography.labelSmall,
             color = TextSubtleDark,
             modifier = Modifier.padding(bottom = 8.dp)
