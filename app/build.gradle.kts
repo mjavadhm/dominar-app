@@ -107,9 +107,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     // Room (local database for Garage & Performance data)
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    kapt("androidx.room:room-compiler:2.6.1")
+    // 2.7.2+ is required with Kotlin 2.2: older room-compiler versions can't
+    // read Kotlin 2.2 class metadata ("maximum supported version is 2.0.0").
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    kapt("androidx.room:room-compiler:2.7.2")
 
     // WorkManager (daily garage reminder checks)
     implementation("androidx.work:work-runtime-ktx:2.9.1")
