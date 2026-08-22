@@ -106,6 +106,11 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // Room (local database for Garage & Performance data)
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
+
     // Neshan map SDK (new MapLibre-based SDK, published on Maven Central)
     implementation("org.neshan.maplibre:android-sdk-opengl:13.4.1")
 

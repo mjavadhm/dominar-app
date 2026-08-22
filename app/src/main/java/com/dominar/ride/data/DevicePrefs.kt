@@ -2,7 +2,7 @@ package com.dominar.ride.data
 
 import android.content.Context
 
-/** Persists the last connected cluster so we can auto-reconnect after app/phone restart. */
+/** Persists the last connected cluster and lightweight UI preferences. */
 class DevicePrefs(context: Context) {
     private val prefs =
         context.applicationContext.getSharedPreferences("dominar_prefs", Context.MODE_PRIVATE)
@@ -19,5 +19,23 @@ class DevicePrefs(context: Context) {
         get() = prefs.getBoolean("auto_connect", true)
         set(value) = prefs.edit().putBoolean("auto_connect", value).apply()
 
-    fun clear() = prefs.edit().clear().apply()
+    // Ride HUD toggles (overlays on the Ride screen).
+    var hudShowSpeed: Boolean
+        get() = prefs.getBoolean("hud_show_speed", true)
+        set(value) = prefs.edit().putBoolean("hud_show_speed", value).apply()
+
+    var hudShowLeanAngle: Boolean
+        get() = prefs.getBoolean("hud_show_lean_angle", true)
+        set(value) = prefs.edit().putBoolean("hud_show_lean_angle", value).apply()
+
+    var hudShowNextTurn: Boolean
+        get() = prefs.getBoolean("hud_show_next_turn", true)
+        set(value) = prefs.edit().putBoolean("hud_show_next_turn", value).apply()
+
+    /** Clears only the paired-device data; HUD preferences are kept. */
+    fun clear() = prefs.edit()
+        .remove("last_device_address")
+        .remove("last_device_name")
+        .remove("auto_connect")
+        .apply()
 }

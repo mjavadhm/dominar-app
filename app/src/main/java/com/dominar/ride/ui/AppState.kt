@@ -32,6 +32,14 @@ class AppState(context: Context) {
     private var _autoConnect by mutableStateOf(prefs.autoConnect)
     val autoConnect: Boolean get() = _autoConnect
 
+    // Ride HUD toggles.
+    private var _hudShowSpeed by mutableStateOf(prefs.hudShowSpeed)
+    val hudShowSpeed: Boolean get() = _hudShowSpeed
+    private var _hudShowLeanAngle by mutableStateOf(prefs.hudShowLeanAngle)
+    val hudShowLeanAngle: Boolean get() = _hudShowLeanAngle
+    private var _hudShowNextTurn by mutableStateOf(prefs.hudShowNextTurn)
+    val hudShowNextTurn: Boolean get() = _hudShowNextTurn
+
     fun startScan() = ble.startScan()
     fun stopScan() = ble.stopScan()
 
@@ -52,6 +60,21 @@ class AppState(context: Context) {
     fun setAutoConnect(enabled: Boolean) {
         prefs.autoConnect = enabled
         _autoConnect = enabled
+    }
+
+    fun setHudShowSpeed(enabled: Boolean) {
+        prefs.hudShowSpeed = enabled
+        _hudShowSpeed = enabled
+    }
+
+    fun setHudShowLeanAngle(enabled: Boolean) {
+        prefs.hudShowLeanAngle = enabled
+        _hudShowLeanAngle = enabled
+    }
+
+    fun setHudShowNextTurn(enabled: Boolean) {
+        prefs.hudShowNextTurn = enabled
+        _hudShowNextTurn = enabled
     }
 
     fun forgetDevice() {
