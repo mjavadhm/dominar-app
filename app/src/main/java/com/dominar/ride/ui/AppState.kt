@@ -9,7 +9,9 @@ import androidx.compose.runtime.setValue
 import com.dominar.ride.ble.BleConnectionManager
 import com.dominar.ride.ble.BleManagerHolder
 import com.dominar.ride.data.DevicePrefs
+import com.dominar.ride.protocol.DominarProtocol
 import com.dominar.ride.service.DominarService
+import java.util.UUID
 
 /**
  * Single source of truth for the UI layer. Bridges Compose screens to the
@@ -20,6 +22,8 @@ class AppState(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = DevicePrefs(appContext)
     private val ble: BleConnectionManager = BleManagerHolder.get(appContext)
+
+    private val navCharUuid = UUID.fromString(DominarProtocol.UUID_NAV)
 
     val connectionState = ble.connectionState
     val foundDevices = ble.foundDevices
@@ -42,6 +46,12 @@ class AppState(context: Context) {
 
     fun startScan() = ble.startScan()
     fun stopScan() = ble.stopScan()
+
+    /**
+     * Queues a navigation packet for the cluster (TBT characteristic).
+     * Safe to call when disconnected — the packet is simply dropped.
+     */
+    fun sendNavPacket(packet: ByteArray): Boolean = ble.send(navCharUuid, packet)
 
     fun connectTo(device: BluetoothDevice) {
         prefs.lastDeviceAddress = device.address

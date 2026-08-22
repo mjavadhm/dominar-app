@@ -18,12 +18,25 @@ data class NavRouteStep(
     val instruction: String,
     val distanceText: String,
     val name: String,
+    /** Length of this step in meters (maneuver point to the next maneuver point). */
+    val distanceMeters: Double,
+    val durationSeconds: Double,
+    /** OSRM-style maneuver type, e.g. "turn", "depart", "arrive", "rotary". */
+    val type: String,
+    /** OSRM-style modifier, e.g. "left", "slight right", "uturn". */
+    val modifier: String,
+    /** Roundabout exit number (0 when not a roundabout). */
+    val exit: Int,
+    /** Where this step's maneuver happens (start of the step). */
+    val location: LatLng?,
 )
 
 data class NavRoute(
     val points: List<LatLng>,
     val distanceText: String,
     val durationText: String,
+    val distanceMeters: Double,
+    val durationSeconds: Double,
     val steps: List<NavRouteStep>,
 )
 
@@ -119,11 +132,25 @@ object NeshanApi {
         if (stepsJson != null) {
             for (i in 0 until stepsJson.length()) {
                 val s = stepsJson.optJSONObject(i) ?: continue
+                // start_location is [lng, lat] (OSRM convention)
+                val startLoc = s.optJSONArray("start_location")
+                val maneuverPoint =
+                    if (startLoc != null && startLoc.length() >= 2)
+                        LatLng(startLoc.optDouble(1), startLoc.optDouble(0))
+                    else null
                 steps.add(
                     NavRouteStep(
                         instruction = s.optString("instruction"),
                         distanceText = s.optJSONObject("distance")?.optString("text") ?: "",
                         name = s.optString("name"),
+                        distanceMeters = s.optJSONObject("distance")?.optDouble("value", 0.0)
+                            ?: 0.0,
+                        durationSeconds = s.optJSONObject("duration")?.optDouble("value", 0.0)
+                            ?: 0.0,
+                        type = s.optString("type"),
+                        modifier = s.optString("modifier"),
+                        exit = s.optInt("exit", 0),
+                        location = maneuverPoint,
                     )
                 )
                 if (overview.isBlank()) {
@@ -140,6 +167,8 @@ object NeshanApi {
             points = points,
             distanceText = leg.optJSONObject("distance")?.optString("text") ?: "",
             durationText = leg.optJSONObject("duration")?.optString("text") ?: "",
+            distanceMeters = leg.optJSONObject("distance")?.optDouble("value", 0.0) ?: 0.0,
+            durationSeconds = leg.optJSONObject("duration")?.optDouble("value", 0.0) ?: 0.0,
             steps = steps,
         )
     }
