@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Delete
 import androidx.room.Entity
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
@@ -12,8 +13,6 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Local persistence for the Garage & Performance features.
- * Phase 0 ships the schema for the service log; fuel, documents and
- * performance records will be added in later phases with migrations.
  */
 @Entity(tableName = "service_log")
 data class ServiceLogEntity(
@@ -26,26 +25,20 @@ data class ServiceLogEntity(
     val note: String? = null
 )
 
-@Dao
-interface ServiceLogDao {
-    @Insert
-    suspend fun insert(entry: ServiceLogEntity): Long
-
-    @Delete
-    suspend fun delete(entry: ServiceLogEntity)
-
-    @Query("SELECT * FROM service_log ORDER BY timestamp DESC")
-    fun observeAll(): Flow<List<ServiceLogEntity>>
-
-    @Query("SELECT * FROM service_log WHERE type = :type ORDER BY timestamp DESC LIMIT 1")
-    suspend fun latestOfType(type: String): ServiceLogEntity?
-}
-
-@Database(
-    entities = [ServiceLogEntity::class],
-    version = 1,
-    exportSchema = false
+/** Per-type reminder interval override (falls back to defaults in ServiceTypes.kt). */
+@Entity(tableName = "service_interval")
+data class ServiceIntervalEntity(
+    @PrimaryKey val type: String,
+    val intervalKm: Int?,
+    val intervalMonths: Int?
 )
-abstract class AppDatabase : RoomDatabase() {
-    abstract fun serviceLogDao(): ServiceLogDao
-}
+
+@Entity(tableName = "fuel_log")
+data class FuelLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val liters: Double,
+    /** Total cost in Toman. */
+    val totalCost: Long,
+    val odometerKm: Int,
+    val timestamp: Long,
+    /** True when the t
