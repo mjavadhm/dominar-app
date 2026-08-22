@@ -72,22 +72,22 @@ class PerformanceViewModel @Inject constructor(
 
     // ---------- Lean angle ----------
     //
-    // Approach: track the world "up" direction expressed in the phone's own
-    // coordinate frame (third row of the rotation matrix — orientation-based,
-    // so centripetal acceleration mid-corner doesn't bend it like raw gravity
-    // would with an accelerometer alone).
+    // Two estimators fused with a complementary filter (same architecture as
+    // motorcycle ECU IMUs and the published lean-estimation literature):
     //
-    // At calibration we freeze the bike's frame in phone coordinates:
-    //   upDev    = where world-up is when the bike is upright
-    //   rightDev = the bike's right-hand axis
-    // Lean is then ONLY the rotation of world-up around the bike's roll axis:
-    //   lean = atan2(-(g · rightDev), g · upDev)
-    // Pitch movement (bumps, braking dive, slopes, wheelies) shifts g along the
-    // forward axis, which this formula ignores by construction — unlike Euler
-    // roll, where pitch/yaw leak into the reading on a tilted mount.
+    // 1) FAST: phone attitude (rotation vector). World-up tracked in the phone
+    //    frame, lean measured ONLY around the bike's roll axis — pitch/yaw
+    //    can't leak in. Accurate short-term, but in long sustained corners the
+    //    sensor fusion gets pulled toward apparent gravity and under-reads.
+    // 2) DRIFT-FREE: GPS coordinated-turn reference, lean = atan(v * yawRate / g).
+    //    Noisy and lagging, but has no drift and no mount/calibration error.
+    //
+    // The slowly-tracked difference between the two becomes a bias estimate
+    // that is subtracted from the fast sensor lean: gyro-quality response with
+    // GPS-anchored long-term accuracy.
 
     private val _leanDeg = MutableStateFlow(0f)
-    /** Smoothed lean angle in degrees. Negative = left, positive = right. */
+    /** Fused, smoothed lean angle in degrees. Negative = left, positive = right. */
     val leanDeg: StateFlow<Float> = _leanDeg.asStateFlow()
 
     private val _maxLeanLeft = MutableStateFlow(0f)
@@ -101,14 +101,78 @@ class PerformanceViewModel @Inject constructor(
     private var rightDev = floatArrayOf(1f, 0f, 0f)
     private var lastGDev = floatArrayOf(0f, 1f, 0f)
 
+    /** Smoothed sensor-only lean (before GPS bias correction). */
+    private var rawLeanDeg = 0f
+
+    /** Slowly-estimated sensor error, anchored by the GPS reference. */
+    private var leanBiasDeg = 0f
+    private var prevBearingDeg: Float? = null
+    private var prevBearingNanos = 0L
+    private var yawRateDegPerSec = 0f
+
     private var leanSensorActive = false
+    private var leanGpsActive = false
     private val rotationMatrix = FloatArray(9)
 
+    private val leanLocationCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            for (location in result.locations) {
+                if (!location.hasSpeed() || !location.hasBearing()) {
+                    prevBearingDeg = null
+                    continue
+                }
+                val nanos = location.elapsedRealtimeNanos
+                val bearing = location.bearing
+                val speedMps = location.speed
+                val prev = prevBearingDeg
+                prevBearingDeg = bearing
+                if (prev == null) {
+                    prevBearingNanos = nanos
+                    continue
+                }
+                val dt = (nanos - prevBearingNanos) / 1_000_000_000f
+                prevBearingNanos = nanos
+                if (dt < 0.05f || dt > 2f) continue
+
+                var dBearing = bearing - prev
+                while (dBearing > 180f) dBearing -= 360f
+                while (dBearing < -180f) dBearing += 360f
+                yawRateDegPerSec = yawRateDegPerSec * 0.7f + (dBearing / dt) * 0.3f
+
+                if (speedMps >= 3f) {
+                    // Coordinated-turn lean: atan(v * yawRate / g). Drift-free.
+                    val yawRateRad = Math.toRadians(yawRateDegPerSec.toDouble())
+                    val leanRefDeg = Math.toDegrees(
+                        atan2(speedMps * yawRateRad, 9.81)
+                    ).toFloat()
+                    // Track the sensor error slowly (~8 s time constant).
+                    val alpha = (dt / 8f).coerceAtMost(0.2f)
+                    leanBiasDeg += alpha * ((rawLeanDeg - leanRefDeg) - leanBiasDeg)
+                    leanBiasDeg = leanBiasDeg.coerceIn(-25f, 25f)
+                } else if (speedMps < 1.5f) {
+                    // Near standstill the sensor sees true gravity — it IS the
+                    // truth, so any learned bias fades out.
+                    leanBiasDeg *= 0.9f
+                }
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     fun startLeanSensor() {
         if (leanSensorActive) return
         val sensor = rotationSensor ?: gravitySensor ?: return
         sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME)
         leanSensorActive = true
+        if (hasLocationPermission()) {
+            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 500L)
+                .setMinUpdateIntervalMillis(300L)
+                .build()
+            fusedClient.requestLocationUpdates(
+                request, leanLocationCallback, Looper.getMainLooper()
+            )
+            leanGpsActive = true
+        }
     }
 
     fun stopLeanSensor() {
@@ -116,6 +180,12 @@ class PerformanceViewModel @Inject constructor(
         val sensor = rotationSensor ?: gravitySensor ?: return
         sensorManager.unregisterListener(this, sensor)
         leanSensorActive = false
+        if (leanGpsActive) {
+            fusedClient.removeLocationUpdates(leanLocationCallback)
+            leanGpsActive = false
+        }
+        prevBearingDeg = null
+        yawRateDegPerSec = 0f
     }
 
     /**
@@ -139,6 +209,8 @@ class PerformanceViewModel @Inject constructor(
         ) ?: return
         rightDev = normalize(cross(forward, up)) ?: return
         upDev = up
+        rawLeanDeg = 0f
+        leanBiasDeg = 0f
         _leanDeg.value = 0f
         _maxLeanLeft.value = 0f
         _maxLeanRight.value = 0f
@@ -155,10 +227,11 @@ class PerformanceViewModel @Inject constructor(
         val lean = Math.toDegrees(
             atan2(-dot(g, rightDev).toDouble(), dot(g, upDev).toDouble())
         ).toFloat()
-        val smoothed = _leanDeg.value * 0.75f + lean * 0.25f
-        _leanDeg.value = smoothed
-        if (smoothed < -_maxLeanLeft.value) _maxLeanLeft.value = -smoothed
-        if (smoothed > _maxLeanRight.value) _maxLeanRight.value = smoothed
+        rawLeanDeg = rawLeanDeg * 0.75f + lean * 0.25f
+        val fused = rawLeanDeg - leanBiasDeg
+        _leanDeg.value = fused
+        if (fused < -_maxLeanLeft.value) _maxLeanLeft.value = -fused
+        if (fused > _maxLeanRight.value) _maxLeanRight.value = fused
     }
 
     private fun dot(a: FloatArray, b: FloatArray): Float =
