@@ -1,5 +1,6 @@
 package com.dominar.ride.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -18,6 +20,10 @@ import com.dominar.ride.R
 import com.dominar.ride.ble.BleConnectionManager
 import com.dominar.ride.ble.BleManagerHolder
 import com.dominar.ride.data.DevicePrefs
+import com.dominar.ride.data.db.ParkingDao
+import com.dominar.ride.data.db.ParkingEntity
+import com.google.android.gms.location.LocationServices
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,6 +31,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import com.dominar.ride.phone.CallMonitor
+import javax.inject.Inject
 
 /**
  * Foreground service that keeps the BLE connection to the cluster alive
@@ -32,7 +39,11 @@ import com.dominar.ride.phone.CallMonitor
  *
  * The persistent notification has a "Stop & disconnect" action so the rider
  * can fully shut the service down (and save battery) without opening the app.
+ *
+ * It also saves the parking location automatically when the cluster
+ * disconnects (bike turned off / out of range).
  */
+@AndroidEntryPoint
 class DominarService : Service() {
 
     companion object {
@@ -54,9 +65,13 @@ class DominarService : Service() {
         }
     }
 
+    @Inject
+    lateinit var parkingDao: ParkingDao
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var stateJob: Job? = null
     private var callMonitor: CallMonitor? = null
+    private var lastState: BleConnectionManager.ConnectionState? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -121,12 +136,49 @@ class DominarService : Service() {
             ?.let { manager.connect(it) }
     }
 
+    // ---------- Parking auto-save ----------
+
+    @SuppressLint("MissingPermission")
+    private fun saveParkingOnDisconnect() {
+        val granted =
+            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        if (!granted) return
+        runCatching {
+            LocationServices.getFusedLocationProviderClient(this).lastLocation
+                .addOnSuccessListener { location ->
+                    if (location != null) {
+                        serviceScope.launch {
+                            parkingDao.upsert(
+                                ParkingEntity(
+                                    id = 0,
+                                    lat = location.latitude,
+                                    lng = location.longitude,
+                                    timestamp = System.currentTimeMillis(),
+                                    auto = true
+                                )
+                            )
+                        }
+                    }
+                }
+        }
+    }
+
     // ---------- Notification ----------
 
     private fun observeConnectionState() {
         stateJob?.cancel()
         stateJob = serviceScope.launch {
             BleManagerHolder.get(this@DominarService).connectionState.collect { state ->
+                val previous = lastState
+                lastState = state
+                if (previous is BleConnectionManager.ConnectionState.Connected &&
+                    state !is BleConnectionManager.ConnectionState.Connected
+                ) {
+                    saveParkingOnDisconnect()
+                }
                 val text = when (state) {
                     is BleConnectionManager.ConnectionState.Connected -> "Connected to cluster ✓"
                     is BleConnectionManager.ConnectionState.Connecting -> "Connecting..."

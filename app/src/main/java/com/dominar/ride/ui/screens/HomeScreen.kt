@@ -19,9 +19,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.dominar.ride.R
 import com.dominar.ride.ble.BleConnectionManager.ConnectionState
 import com.dominar.ride.ui.AppState
+import com.dominar.ride.ui.GarageViewModel
 import com.dominar.ride.ui.theme.*
 
 @Composable
@@ -30,9 +32,12 @@ fun HomeScreen(
     onStartRide: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenGarage: () -> Unit,
-    onOpenPerformance: () -> Unit
+    onOpenPerformance: () -> Unit,
+    garage: GarageViewModel = hiltViewModel()
 ) {
     val state by app.connectionState.collectAsState()
+    val nextService by garage.nextService.collectAsState()
+    val parking by garage.parking.collectAsState()
 
     Column(
         modifier = Modifier
@@ -53,27 +58,32 @@ fun HomeScreen(
             letterSpacing = 1.2.sp
         )
         Spacer(Modifier.height(8.dp))
+        val ns = nextService
         SummaryCard(
             emoji = "\uD83D\uDD27",
             title = "Next service",
-            value = "No services logged yet",
-            hint = "Set it up in Garage",
+            value = ns?.let { "${it.type.label} \u2014 ${dueLabelOf(it) ?: "scheduled"}" }
+                ?: "No services logged yet",
+            hint = ns?.lastLog?.let { "Last: ${formatKm(it.odometerKm)} \u00B7 ${formatDate(it.timestamp)}" }
+                ?: "Set it up in Garage",
             onClick = onOpenGarage
         )
         Spacer(Modifier.height(10.dp))
         SummaryCard(
             emoji = "\u26A1",
-            title = "Best 0–100",
+            title = "Best 0\u2013100",
             value = "No record yet",
             hint = "Measure it in Performance",
             onClick = onOpenPerformance
         )
         Spacer(Modifier.height(10.dp))
+        val p = parking
         SummaryCard(
             emoji = "\uD83C\uDD7F\uFE0F",
             title = "Parked location",
-            value = "Not saved",
-            hint = "Will be saved when the bike disconnects",
+            value = p?.let { "Parked ${timeAgo(it.timestamp)}" } ?: "Not saved",
+            hint = p?.let { if (it.auto) "Auto-saved on disconnect" else "Saved manually" }
+                ?: "Will be saved when the bike disconnects",
             onClick = onOpenGarage
         )
         Spacer(Modifier.height(20.dp))
@@ -201,7 +211,9 @@ private fun SummaryCard(
                 text = value,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = hint,
