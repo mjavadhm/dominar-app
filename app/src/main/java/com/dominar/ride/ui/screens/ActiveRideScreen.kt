@@ -47,6 +47,7 @@ import com.dominar.ride.navigation.NavRoute
 import com.dominar.ride.navigation.NavSession
 import com.dominar.ride.navigation.NavTracker
 import com.dominar.ride.navigation.NeshanApi
+import com.dominar.ride.navigation.RouteOverlay
 import com.dominar.ride.navigation.TrafficOverlay
 import com.dominar.ride.protocol.DominarProtocol
 import com.dominar.ride.ui.AppState
@@ -66,8 +67,6 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
-import org.maplibre.android.annotations.Polyline
-import org.maplibre.android.annotations.PolylineOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -126,11 +125,10 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
     var results by remember { mutableStateOf<List<NavPlace>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
 
-    // --- Map overlays ---
+    // --- Map overlays (route lines live in RouteOverlay style layers) ---
     var myMarker by remember { mutableStateOf<Marker?>(null) }
     var originMarker by remember { mutableStateOf<Marker?>(null) }
     var destMarker by remember { mutableStateOf<Marker?>(null) }
-    var routeLines by remember { mutableStateOf<List<Polyline>>(emptyList()) }
 
     // ---------- Helpers ----------
 
@@ -150,37 +148,14 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
     }
 
     fun clearRouteLines() {
-        val m = map
-        routeLines.forEach { m?.removePolyline(it) }
-        routeLines = emptyList()
+        map?.let { RouteOverlay.clear(it) }
     }
 
-    // Slightly transparent lines keep the traffic colors underneath visible,
-    // so riders can compare congestion across the alternatives (like Maps).
+    // Route lines are style layers anchored below the traffic raster, so
+    // live congestion colors paint directly onto the lines and riders can
+    // compare traffic across the alternatives (Google-Maps-style).
     fun drawRoutes(m: MapLibreMap) {
-        routeLines.forEach { m.removePolyline(it) }
-        val lines = ArrayList<Polyline>()
-        nav.routes.forEachIndexed { i, r ->
-            if (i != nav.selectedRouteIndex) {
-                lines += m.addPolyline(
-                    PolylineOptions()
-                        .addAll(r.points)
-                        .color(android.graphics.Color.rgb(122, 132, 148))
-                        .width(5f)
-                        .alpha(0.65f)
-                )
-            }
-        }
-        nav.selectedRoute?.let { r ->
-            lines += m.addPolyline(
-                PolylineOptions()
-                    .addAll(r.points)
-                    .color(android.graphics.Color.rgb(30, 118, 255))
-                    .width(7f)
-                    .alpha(0.8f)
-            )
-        }
-        routeLines = lines
+        RouteOverlay.draw(m, nav.routes, nav.selectedRouteIndex)
     }
 
     fun fitRoute(m: MapLibreMap, r: NavRoute) {
