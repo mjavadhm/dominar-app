@@ -15,21 +15,24 @@ import org.maplibre.android.style.sources.TileSet
  * query param busts the tile cache, so re-adding the source with a fresh
  * `ts` pulls the latest congestion colors.
  *
- * Route polylines and markers are annotations, which always render above
- * style layers, so the overlay never hides them.
+ * [RouteOverlay] anchors the route line layers *below* this layer, so live
+ * congestion colors paint directly onto the route lines (Google-Maps-style).
+ * Markers are annotations and always render above everything.
  */
 object TrafficOverlay {
 
     /** How often the overlay should be re-fetched while the map is visible. */
     const val REFRESH_INTERVAL_MS = 5 * 60_000L
 
+    /** Public so [RouteOverlay] can anchor the route lines below this layer. */
+    const val LAYER_ID = "neshan-traffic-layer"
+
     private const val SOURCE_ID = "neshan-traffic"
-    private const val LAYER_ID = "neshan-traffic-layer"
 
     private fun tileUrls(ts: Long): Array<String> {
         val key = BuildConfig.NESHAN_SDK_KEY.ifBlank { BuildConfig.NESHAN_API_KEY }
         return arrayOf("1", "2", "3", "4").map { sub ->
-            "{{https://$sub.neshan.org/traffic/{z}}}/{x}/{y}.png?key=$key&ts=$ts"
+            "https://$sub.neshan.org/traffic/{z}/{x}/{y}.png?key=$key&ts=$ts"
         }.toTypedArray()
     }
 
