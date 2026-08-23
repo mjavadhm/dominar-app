@@ -19,6 +19,11 @@ class DevicePrefs(context: Context) {
         get() = prefs.getBoolean("auto_connect", true)
         set(value) = prefs.edit().putBoolean("auto_connect", value).apply()
 
+    /** True once the first-run permission onboarding has been completed. */
+    var onboardingDone: Boolean
+        get() = prefs.getBoolean("onboarding_done", false)
+        set(value) = prefs.edit().putBoolean("onboarding_done", value).apply()
+
     // Ride HUD toggles (overlays on the Ride screen).
     var hudShowSpeed: Boolean
         get() = prefs.getBoolean("hud_show_speed", true)
