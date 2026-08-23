@@ -1,7 +1,5 @@
 package com.dominar.ride
 
-import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,10 +18,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
+import com.dominar.ride.data.DevicePrefs
 import com.dominar.ride.ui.AppState
+import com.dominar.ride.ui.permissions.PermissionGate
 import com.dominar.ride.ui.screens.ActiveRideScreen
 import com.dominar.ride.ui.screens.GarageScreen
 import com.dominar.ride.ui.screens.HomeScreen
+import com.dominar.ride.ui.screens.OnboardingScreen
 import com.dominar.ride.ui.screens.PerformanceScreen
 import com.dominar.ride.ui.screens.SettingsScreen
 import com.dominar.ride.ui.theme.DominarRideTheme
@@ -45,14 +46,29 @@ class MainActivity : ComponentActivity() {
         setContent {
             DominarRideTheme {
                 val appState = remember { AppState(applicationContext) }
+                val prefs = remember { DevicePrefs(applicationContext) }
                 var currentTab by rememberSaveable { mutableStateOf("home") }
                 var showSettings by rememberSaveable { mutableStateOf(false) }
+                var showOnboarding by rememberSaveable {
+                    mutableStateOf(!prefs.onboardingDone)
+                }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    if (showSettings) {
-                        SettingsScreen(app = appState, onBack = { showSettings = false })
-                    } else {
-                        Scaffold(
+                    when {
+                        // First run (or reopened from Settings): explain every
+                        // permission and let the user grant them one by one.
+                        showOnboarding -> OnboardingScreen(
+                            onDone = {
+                                prefs.onboardingDone = true
+                                showOnboarding = false
+                            }
+                        )
+                        showSettings -> SettingsScreen(
+                            app = appState,
+                            onBack = { showSettings = false },
+                            onOpenPermissions = { showOnboarding = true }
+                        )
+                        else -> Scaffold(
                             bottomBar = {
                                 NavigationBar {
                                     bottomTabs.forEach { tab ->
@@ -72,10 +88,22 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxSize()
                             ) {
                                 when (currentTab) {
-                                    "ride" -> ActiveRideScreen(
-                                        app = appState,
-                                        onStopRide = { currentTab = "home" }
-                                    )
+                                    "ride" -> PermissionGate(
+                                        permissions = listOf(
+                                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                        ),
+                                        emoji = "\uD83D\uDCCD",
+                                        title = "Location powers the Ride screen",
+                                        description = "It's used for the map, navigation, GPS " +
+                                            "speed and your parking spot \u2014 nothing is " +
+                                            "shared anywhere."
+                                    ) {
+                                        ActiveRideScreen(
+                                            app = appState,
+                                            onStopRide = { currentTab = "home" }
+                                        )
+                                    }
                                     "garage" -> GarageScreen()
                                     "performance" -> PerformanceScreen()
                                     else -> HomeScreen(
@@ -92,59 +120,5 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        requestRuntimeEssentials()
-        requestPhonePermissions()
-        requestBluetoothAndLocationPermissions()
-    }
-
-    private fun requestRuntimeEssentials() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
-        }
-        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
-        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-            startActivity(
-                Intent(
-                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    android.net.Uri.parse("package:$packageName")
-                )
-            )
-        }
-    }
-
-    private fun requestPhonePermissions() {
-        val needed = arrayOf(
-            android.Manifest.permission.READ_PHONE_STATE,
-            android.Manifest.permission.READ_CALL_LOG,
-            android.Manifest.permission.READ_CONTACTS,
-            android.Manifest.permission.ANSWER_PHONE_CALLS
-        ).filter {
-            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-        if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), 101)
-
-        val enabled = androidx.core.app.NotificationManagerCompat
-            .getEnabledListenerPackages(this)
-        if (!enabled.contains(packageName)) {
-            startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        }
-    }
-
-    private fun requestBluetoothAndLocationPermissions() {
-        val needed = buildList {
-            if (Build.VERSION.SDK_INT >= 31) {
-                add(android.Manifest.permission.BLUETOOTH_SCAN)
-                add(android.Manifest.permission.BLUETOOTH_CONNECT)
-            }
-            // Needed for the map's my-location feature on every API level.
-            add(android.Manifest.permission.ACCESS_FINE_LOCATION)
-            add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
-        }.filter {
-            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-        if (needed.isNotEmpty()) requestPermissions(needed.toTypedArray(), 102)
     }
 }

@@ -3,6 +3,7 @@ package com.dominar.ride.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -25,7 +26,11 @@ import com.dominar.ride.ui.theme.PrimaryBlue
 import com.dominar.ride.ui.theme.TextSubtleDark
 
 @Composable
-fun SettingsScreen(app: AppState, onBack: () -> Unit) {
+fun SettingsScreen(
+    app: AppState,
+    onBack: () -> Unit,
+    onOpenPermissions: () -> Unit = {}
+) {
     BackHandler(onBack = onBack)
 
     val state by app.connectionState.collectAsState()
@@ -66,6 +71,9 @@ fun SettingsScreen(app: AppState, onBack: () -> Unit) {
         SectionLabel("RIDE HUD")
         HudSection(app)
 
+        SectionLabel("PERMISSIONS")
+        PermissionsRow(onClick = onOpenPermissions)
+
         SectionLabel("LIVE ACTIVITY")
         ActivityLog(logs)
     }
@@ -80,6 +88,33 @@ private fun SectionLabel(text: String) {
         letterSpacing = 1.2.sp,
         modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
     )
+}
+
+@Composable
+private fun PermissionsRow(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "Permission & access guide",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "See why each permission is needed and grant anything you skipped.",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSubtleDark
+            )
+        }
+        Text("\u203A", fontSize = 22.sp, color = TextSubtleDark)
+    }
 }
 
 @Composable
@@ -273,7 +308,7 @@ private fun ActivityLog(logs: List<String>) {
     ) {
         if (logs.isEmpty()) {
             Text(
-                text = "No activity yet — connect to your cluster.",
+                text = "No activity yet \u2014 connect to your cluster.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSubtleDark
             )
