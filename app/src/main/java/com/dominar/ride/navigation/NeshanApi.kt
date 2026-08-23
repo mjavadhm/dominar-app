@@ -59,6 +59,8 @@ object NeshanApi {
                 "Neshan API key missing — add NESHAN_API_KEY to local.properties"
             )
         }
+        // e.g. "v1/search" or "v4/direction" — used to build actionable errors.
+        val service = url.removePrefix(BASE).trimStart('/').substringBefore("?")
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "GET"
@@ -70,11 +72,23 @@ object NeshanApi {
                 ?.bufferedReader()?.use { it.readText() } ?: ""
             return when (code) {
                 in 200..299 -> JSONObject(body)
-                401, 403 -> throw NeshanApiException("Neshan API key is invalid (HTTP $code)")
-                429 -> throw NeshanApiException("Neshan API rate limit exceeded")
-                470, 480, 481, 482, 485 ->
-                    throw NeshanApiException("Neshan API error $code — check key type/quota")
-                else -> throw NeshanApiException("Neshan API failed (HTTP $code)")
+                401, 403, 480 -> throw NeshanApiException(
+                    "Neshan API key is invalid or expired (HTTP $code)"
+                )
+                429, 482 -> throw NeshanApiException(
+                    "Neshan rate limit hit — wait a minute and try again"
+                )
+                470 -> throw NeshanApiException(
+                    "Neshan rejected the request parameters (HTTP 470, $service)"
+                )
+                481 -> throw NeshanApiException(
+                    "Neshan quota for this key is used up — check your plan in the Neshan panel"
+                )
+                485 -> throw NeshanApiException(
+                    "This API key can't call \"$service\" (HTTP 485) — open the Neshan " +
+                        "panel and make sure this Web-service key has that service enabled"
+                )
+                else -> throw NeshanApiException("Neshan API failed (HTTP $code, $service)")
             }
         } finally {
             conn.disconnect()
@@ -110,10 +124,14 @@ object NeshanApi {
         json.optString("formatted_address").takeIf { it.isNotBlank() }
     }.getOrNull()
 
-    /** Direction API v4 — motorcycle routing. */
-    fun direction(origin: LatLng, destination: LatLng): NavRoute {
+    /**
+     * Direction API v4 — motorcycle routing with alternatives.
+     * The first route is Neshan's best (fastest) suggestion.
+     */
+    fun directions(origin: LatLng, destination: LatLng): List<NavRoute> {
         val url = "$BASE/v4/direction" +
             "?type=motorcycle" +
+            "&alternative=true" +
             "&origin=${origin.latitude},${origin.longitude}" +
             "&destination=${destination.latitude},${destination.longitude}"
         val json = get(url)
@@ -121,7 +139,20 @@ object NeshanApi {
         if (routes == null || routes.length() == 0) {
             throw NeshanApiException("No route found between these points")
         }
-        val route = routes.getJSONObject(0)
+        val parsed = ArrayList<NavRoute>()
+        for (i in 0 until routes.length()) {
+            val r = routes.optJSONObject(i) ?: continue
+            runCatching { parsed.add(parseRoute(r)) }
+        }
+        if (parsed.isEmpty()) throw NeshanApiException("Malformed route response")
+        return parsed
+    }
+
+    /** Single best route (kept for compatibility). */
+    fun direction(origin: LatLng, destination: LatLng): NavRoute =
+        directions(origin, destination).first()
+
+    private fun parseRoute(route: JSONObject): NavRoute {
         val overview = route.optJSONObject("overview_polyline")?.optString("points") ?: ""
         val leg = route.optJSONArray("legs")?.optJSONObject(0)
             ?: throw NeshanApiException("Malformed route response")
