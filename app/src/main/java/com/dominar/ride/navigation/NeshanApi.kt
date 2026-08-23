@@ -21,9 +21,9 @@ data class NavRouteStep(
     /** Length of this step in meters (maneuver point to the next maneuver point). */
     val distanceMeters: Double,
     val durationSeconds: Double,
-    /** OSRM-style maneuver type, e.g. \"turn\", \"depart\", \"arrive\", \"rotary\". */
+    /** OSRM-style maneuver type, e.g. "turn", "depart", "arrive", "rotary". */
     val type: String,
-    /** OSRM-style modifier, e.g. \"left\", \"slight right\", \"uturn\". */
+    /** OSRM-style modifier, e.g. "left", "slight right", "uturn". */
     val modifier: String,
     /** Roundabout exit number (0 when not a roundabout). */
     val exit: Int,
@@ -46,7 +46,7 @@ class NeshanApiException(message: String) : Exception(message)
  * Thin client for the Neshan web services (https://platform.neshan.org/api/).
  * All functions are blocking — call them from Dispatchers.IO.
  *
- * Requires a \"Web service\" API key set as NESHAN_API_KEY (see README).
+ * Requires a "Web service" API key set as NESHAN_API_KEY (see README).
  */
 object NeshanApi {
 
@@ -98,7 +98,7 @@ object NeshanApi {
     /** Search API v1 — finds places near [around]. */
     fun search(term: String, around: LatLng): List<NavPlace> {
         val url = "$BASE/v1/search" +
-            "?term=${URLEncoder.encode(term, \"UTF-8\")}" +
+            "?term=" + URLEncoder.encode(term, "UTF-8") +
             "&lat=${around.latitude}&lng=${around.longitude}"
         val json = get(url)
         val items = json.optJSONArray("items") ?: return emptyList()
