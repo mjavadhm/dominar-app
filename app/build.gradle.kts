@@ -12,6 +12,8 @@ plugins {
 // - NESHAN_SDK_KEY: map SDK key (registered with package name + SHA1), injected
 //   into AndroidManifest as org.maplibre.android.API_KEY.
 // - NESHAN_API_KEY: web-services key (search / reverse geocode / routing).
+// - NESHAN_WEB_KEY (optional): web SDK key; some tile services (e.g. traffic)
+//   may only be enabled for web keys, so the traffic overlay also tries it.
 // Resolution order: local.properties > gradle property > environment variable.
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -26,6 +28,7 @@ fun secret(name: String): String =
 
 val neshanApiKey = secret("NESHAN_API_KEY")
 val neshanSdkKey = secret("NESHAN_SDK_KEY")
+val neshanWebKey = secret("NESHAN_WEB_KEY")
 
 android {
     namespace = "com.dominar.ride"
@@ -40,6 +43,7 @@ android {
 
         buildConfigField("String", "NESHAN_API_KEY", "\"$neshanApiKey\"")
         buildConfigField("String", "NESHAN_SDK_KEY", "\"$neshanSdkKey\"")
+        buildConfigField("String", "NESHAN_WEB_KEY", "\"$neshanWebKey\"")
         manifestPlaceholders["NESHAN_SDK_KEY"] = neshanSdkKey
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
