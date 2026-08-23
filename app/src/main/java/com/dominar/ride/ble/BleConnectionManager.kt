@@ -194,6 +194,7 @@ class BleConnectionManager(
 
     fun connect(device: BluetoothDevice) {
         stopScan()
+        reconnectJob?.cancel()
         userInitiatedDisconnect = false
         lastDevice = device
         _connectionState.value = ConnectionState.Connecting
@@ -250,7 +251,18 @@ class BleConnectionManager(
                         _connectionState.value = ConnectionState.Disconnected
                     } else {
                         log("Connection lost (status=$status)")
-                        scheduleReconnect()
+                        // BUGFIX: surface the loss immediately. Previously the
+                        // state stayed Connected here, so the reconnect loop's
+                        // "!is Connected" condition was already false — the loop
+                        // never ran, the UI showed "Connected" forever, and the
+                        // parking auto-save (which listens for the
+                        // Connected -> not-Connected transition) never fired.
+                        if (_connectionState.value !is ConnectionState.Reconnecting) {
+                            _connectionState.value = ConnectionState.Disconnected
+                        }
+                        // Don't reset the backoff if a reconnect loop is already
+                        // running (each failed attempt also lands here).
+                        if (reconnectJob?.isActive != true) scheduleReconnect()
                     }
                 }
             }

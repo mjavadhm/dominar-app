@@ -22,7 +22,10 @@ import com.dominar.ride.ble.BleManagerHolder
 import com.dominar.ride.data.DevicePrefs
 import com.dominar.ride.data.db.ParkingDao
 import com.dominar.ride.data.db.ParkingEntity
+import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +44,8 @@ import javax.inject.Inject
  * can fully shut the service down (and save battery) without opening the app.
  *
  * It also saves the parking location automatically when the cluster
- * disconnects (bike turned off / out of range).
+ * disconnects (bike turned off / out of range) and when the rider taps
+ * "Stop & disconnect" while connected (BLE range means the bike is nearby).
  */
 @AndroidEntryPoint
 class DominarService : Service() {
@@ -51,6 +55,9 @@ class DominarService : Service() {
         private const val NOTIFICATION_ID = 1
         const val ACTION_START = "com.dominar.ride.action.START"
         const val ACTION_STOP = "com.dominar.ride.action.STOP"
+
+        // lastLocation older than this is considered stale for parking.
+        private const val PARKING_MAX_LOCATION_AGE_MS = 2 * 60_000L
 
         fun start(context: Context) {
             val intent = Intent(context, DominarService::class.java).setAction(ACTION_START)
@@ -83,7 +90,12 @@ class DominarService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stateJob?.cancel()
-            BleManagerHolder.get(this).disconnect()
+            val manager = BleManagerHolder.get(this)
+            if (manager.connectionState.value is BleConnectionManager.ConnectionState.Connected) {
+                // Rider is next to the bike (BLE range) — remember where it is.
+                saveParkingOnDisconnect()
+            }
+            manager.disconnect()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -138,31 +150,58 @@ class DominarService : Service() {
 
     // ---------- Parking auto-save ----------
 
+    private fun hasLocationPermission(): Boolean =
+        checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
     @SuppressLint("MissingPermission")
     private fun saveParkingOnDisconnect() {
-        val granted =
-            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED ||
-                checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
-        if (!granted) return
+        if (!hasLocationPermission()) return
+        val fused = LocationServices.getFusedLocationProviderClient(this)
         runCatching {
-            LocationServices.getFusedLocationProviderClient(this).lastLocation
+            fused.lastLocation
                 .addOnSuccessListener { location ->
-                    if (location != null) {
-                        serviceScope.launch {
-                            parkingDao.upsert(
-                                ParkingEntity(
-                                    id = 0,
-                                    lat = location.latitude,
-                                    lng = location.longitude,
-                                    timestamp = System.currentTimeMillis(),
-                                    auto = true
-                                )
-                            )
-                        }
+                    if (location != null &&
+                        System.currentTimeMillis() - location.time <= PARKING_MAX_LOCATION_AGE_MS
+                    ) {
+                        persistParking(location.latitude, location.longitude)
+                    } else {
+                        // lastLocation is null or stale — ask for a fresh fix.
+                        requestFreshLocation(fused)
                     }
                 }
+                .addOnFailureListener { requestFreshLocation(fused) }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun requestFreshLocation(fused: FusedLocationProviderClient) {
+        if (!hasLocationPermission()) return
+        runCatching {
+            fused.getCurrentLocation(
+                Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                CancellationTokenSource().token
+            ).addOnSuccessListener { location ->
+                if (location != null) persistParking(location.latitude, location.longitude)
+            }
+        }
+    }
+
+    private fun persistParking(lat: Double, lng: Double) {
+        // Independent scope: the write must survive even if the service is
+        // being torn down right after a manual "Stop & disconnect".
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            parkingDao.upsert(
+                ParkingEntity(
+                    id = 0,
+                    lat = lat,
+                    lng = lng,
+                    timestamp = System.currentTimeMillis(),
+                    auto = true
+                )
+            )
         }
     }
 
