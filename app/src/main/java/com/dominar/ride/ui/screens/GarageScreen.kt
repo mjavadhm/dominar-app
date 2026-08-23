@@ -26,7 +26,6 @@ import com.dominar.ride.data.db.DocumentEntity
 import com.dominar.ride.data.db.FuelLogEntity
 import com.dominar.ride.data.db.ParkingEntity
 import com.dominar.ride.data.db.ServiceLogEntity
-import com.dominar.ride.garage.SERVICE_TYPES
 import com.dominar.ride.garage.ServiceStatus
 import com.dominar.ride.garage.serviceTypeOf
 import com.dominar.ride.ui.FuelStats
@@ -37,15 +36,24 @@ import com.dominar.ride.ui.theme.StatusDanger
 import com.dominar.ride.ui.theme.StatusGood
 import com.dominar.ride.ui.theme.StatusWarning
 import com.dominar.ride.ui.theme.TextSubtleDark
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 // ---------- Shared helpers (also used by HomeScreen) ----------
 
-private val garageDateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.US)
+private val persianLocale = android.icu.util.ULocale("fa_IR@calendar=persian")
 
-internal fun formatDate(timestamp: Long): String = garageDateFormat.format(Date(timestamp))
+/** Formats a timestamp as a Shamsi (Jalali) date, e.g. 1405/06/01. */
+internal fun formatDate(timestamp: Long): String {
+    val cal = android.icu.util.Calendar.getInstance(persianLocale)
+    cal.timeInMillis = timestamp
+    return String.format(
+        Locale.US,
+        "%04d/%02d/%02d",
+        cal.get(android.icu.util.Calendar.YEAR),
+        cal.get(android.icu.util.Calendar.MONTH) + 1,
+        cal.get(android.icu.util.Calendar.DAY_OF_MONTH)
+    )
+}
 
 internal fun formatKm(km: Int): String = String.format(Locale.US, "%,d km", km)
 
@@ -99,10 +107,16 @@ fun GarageScreen(vm: GarageViewModel = hiltViewModel()) {
     val documents by vm.documents.collectAsState()
     val parking by vm.parking.collectAsState()
 
-    var showAddService by remember { mutableStateOf(false) }
-    var showAddFuel by remember { mutableStateOf(false) }
-    var intervalTarget by remember { mutableStateOf<ServiceStatus?>(null) }
+    var serviceTargetKey by remember { mutableStateOf<String?>(null) }
+    var showFuelSheet by remember { mutableStateOf(false) }
     var documentTarget by remember { mutableStateOf<String?>(null) }
+
+    val bestOdometer = remember(serviceLogs, fuelLogs) {
+        maxOf(
+            serviceLogs.maxOfOrNull { it.odometerKm } ?: 0,
+            fuelLogs.maxOfOrNull { it.odometerKm } ?: 0
+        ).takeIf { it > 0 }
+    }
 
     Column(
         modifier = Modifier
@@ -145,26 +159,21 @@ fun GarageScreen(vm: GarageViewModel = hiltViewModel()) {
 
         SectionHeader("SERVICES")
         statuses.forEach { status ->
-            ServiceStatusRow(status = status, onEditInterval = { intervalTarget = status })
+            ServiceStatusRow(status = status, onClick = { serviceTargetKey = status.type.key })
             Spacer(Modifier.height(8.dp))
         }
-        AddButton("\uFF0B Log a service") { showAddService = true }
-
-        if (serviceLogs.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
-            SectionHeader("RECENT SERVICES")
-            serviceLogs.take(5).forEach { log ->
-                ServiceLogRow(log = log, onDelete = { vm.deleteServiceLog(log) })
-                Spacer(Modifier.height(6.dp))
-            }
-        }
+        Text(
+            text = "Tap a service to log it, set its reminder or see its history.",
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSubtleDark
+        )
 
         Spacer(Modifier.height(20.dp))
 
         SectionHeader("FUEL")
         FuelStatsCard(stats = fuelStats)
         Spacer(Modifier.height(8.dp))
-        AddButton("\uFF0B Add a fill-up") { showAddFuel = true }
+        AddButton("\uFF0B Add a fill-up") { showFuelSheet = true }
         if (fuelLogs.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
             fuelLogs.take(5).forEach { log ->
@@ -191,36 +200,35 @@ fun GarageScreen(vm: GarageViewModel = hiltViewModel()) {
         )
     }
 
-    if (showAddService) {
-        AddServiceDialog(
-            onDismiss = { showAddService = false },
-            onSave = { type, odo, ts, note ->
-                vm.addServiceLog(type, odo, ts, note)
-                showAddService = false
-            }
-        )
+    // ---------- Sheets ----------
+
+    serviceTargetKey?.let { key ->
+        val status = statuses.firstOrNull { it.type.key == key }
+        if (status != null) {
+            ServiceSheet(
+                status = status,
+                history = serviceLogs.filter { it.type == key },
+                defaultOdometer = bestOdometer,
+                onLog = { odo, ts, note -> vm.addServiceLog(key, odo, ts, note) },
+                onSaveInterval = { km, months -> vm.setServiceInterval(key, km, months) },
+                onDeleteLog = { vm.deleteServiceLog(it) },
+                onDismiss = { serviceTargetKey = null }
+            )
+        }
     }
-    if (showAddFuel) {
-        AddFuelDialog(
-            onDismiss = { showAddFuel = false },
+    if (showFuelSheet) {
+        FuelSheet(
+            defaultOdometer = bestOdometer,
             onSave = { liters, cost, odo, full ->
                 vm.addFuelLog(liters, cost, odo, full)
-                showAddFuel = false
-            }
-        )
-    }
-    intervalTarget?.let { target ->
-        IntervalDialog(
-            status = target,
-            onSave = { km, months ->
-                vm.setServiceInterval(target.type.key, km, months)
-                intervalTarget = null
+                showFuelSheet = false
             },
-            onDismiss = { intervalTarget = null }
+            onDismiss = { showFuelSheet = false }
         )
     }
     documentTarget?.let { type ->
-        DocumentDateDialog(
+        DocumentSheet(
+            label = if (type == "INSURANCE") "Insurance (3rd party)" else "Technical inspection",
             initial = documents[type]?.expiryTimestamp,
             onSave = { ts ->
                 vm.setDocumentExpiry(type, ts)
@@ -328,13 +336,13 @@ private fun ParkingCard(
 }
 
 @Composable
-private fun ServiceStatusRow(status: ServiceStatus, onEditInterval: () -> Unit) {
+private fun ServiceStatusRow(status: ServiceStatus, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .clickable { onEditInterval() }
+            .clickable { onClick() }
             .padding(14.dp)
     ) {
         Row(
@@ -375,7 +383,7 @@ private fun ServiceStatusRow(status: ServiceStatus, onEditInterval: () -> Unit) 
             }
         } else {
             Text(
-                text = "Not logged yet \u2014 tap to set interval",
+                text = "Not logged yet \u2014 tap to log or set a reminder",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSubtleDark
             )
@@ -525,7 +533,369 @@ private fun DocumentRow(
     }
 }
 
-// ---------- Dialogs ----------
+// ---------- Apple-style bottom sheets ----------
+
+/** Apple-style sheet top bar: Cancel on the left, bold centered title. */
+@Composable
+private fun SheetHeader(title: String, onCancel: () -> Unit) {
+    Box(Modifier.fillMaxWidth()) {
+        TextButton(
+            onClick = onCancel,
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) { Text("Cancel", color = PrimaryBlue) }
+        Text(
+            text = title,
+            modifier = Modifier.align(Alignment.Center),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun SheetSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = TextSubtleDark,
+        letterSpacing = 1.2.sp,
+        modifier = Modifier.padding(top = 18.dp, bottom = 8.dp)
+    )
+}
+
+@Composable
+private fun SheetPrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
+    ) { Text(text, fontWeight = FontWeight.Bold) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ServiceSheet(
+    status: ServiceStatus,
+    history: List<ServiceLogEntity>,
+    defaultOdometer: Int?,
+    onLog: (odometerKm: Int, timestamp: Long, note: String?) -> Unit,
+    onSaveInterval: (Int?, Int?) -> Unit,
+    onDeleteLog: (ServiceLogEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var odometer by remember { mutableStateOf(defaultOdometer?.toString() ?: "") }
+    var timestamp by remember { mutableStateOf(System.currentTimeMillis()) }
+    var note by remember { mutableStateOf("") }
+    var km by remember { mutableStateOf(status.intervalKm?.toString() ?: "") }
+    var months by remember { mutableStateOf(status.intervalMonths?.toString() ?: "") }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            SheetHeader("${status.type.emoji}  ${status.type.label}", onCancel = onDismiss)
+
+            // Current status
+            if (status.lastLog != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Last: ${formatKm(status.lastLog.odometerKm)} \u00B7 ${formatDate(status.lastLog.timestamp)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSubtleDark
+                        )
+                        Text(
+                            text = dueLabelOf(status) ?: "\u2014",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = dueColorOf(status.progress),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    status.progress?.let { p ->
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = { p },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = dueColorOf(p),
+                            trackColor = BorderDark
+                        )
+                    }
+                }
+            }
+
+            SheetSectionLabel("LOG IT NOW")
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = odometer,
+                    onValueChange = { odometer = it.filter { c -> c.isDigit() } },
+                    label = { Text("Odometer (km)") },
+                    supportingText = if (defaultOdometer != null) {
+                        { Text("Pre-filled from your last entry \u2014 adjust if needed.") }
+                    } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                DateField(label = "Date", timestamp = timestamp, onChange = { timestamp = it })
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Note (optional)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            SheetSectionLabel("REMIND ME EVERY\u2026")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = km,
+                    onValueChange = { km = it.filter { c -> c.isDigit() } },
+                    label = { Text("Kilometers") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = months,
+                    onValueChange = { months = it.filter { c -> c.isDigit() } },
+                    label = { Text("Months") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Text(
+                text = "Leave both empty to turn the reminder off.",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSubtleDark,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            Spacer(Modifier.height(16.dp))
+            val odoValue = odometer.toIntOrNull()
+            SheetPrimaryButton(
+                text = if (odoValue != null) "Log ${status.type.label}" else "Save reminder only"
+            ) {
+                onSaveInterval(km.toIntOrNull(), months.toIntOrNull())
+                if (odoValue != null) onLog(odoValue, timestamp, note.takeIf { it.isNotBlank() })
+                onDismiss()
+            }
+
+            if (history.isNotEmpty()) {
+                SheetSectionLabel("HISTORY")
+                history.take(5).forEach { log ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "${formatKm(log.odometerKm)} \u00B7 ${formatDate(log.timestamp)}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            log.note?.takeIf { it.isNotBlank() }?.let {
+                                Text(
+                                    text = it,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSubtleDark,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        IconButton(onClick = { onDeleteLog(log) }) {
+                            Text("\uD83D\uDDD1", fontSize = 13.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FuelSheet(
+    defaultOdometer: Int?,
+    onSave: (liters: Double, totalCost: Long, odometerKm: Int, fullTank: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var liters by remember { mutableStateOf("") }
+    var cost by remember { mutableStateOf("") }
+    var odometer by remember { mutableStateOf(defaultOdometer?.toString() ?: "") }
+    var fullTank by remember { mutableStateOf(true) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            SheetHeader("\u26FD  Fill-up", onCancel = onDismiss)
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = liters,
+                    onValueChange = { liters = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text("Liters") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = cost,
+                    onValueChange = { cost = it.filter { c -> c.isDigit() } },
+                    label = { Text("Total cost (Toman)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = odometer,
+                    onValueChange = { odometer = it.filter { c -> c.isDigit() } },
+                    label = { Text("Odometer (km)") },
+                    supportingText = if (defaultOdometer != null) {
+                        { Text("Pre-filled from your last entry.") }
+                    } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                val litersD = liters.toDoubleOrNull()
+                val costL = cost.toLongOrNull()
+                if (litersD != null && litersD > 0 && costL != null && costL > 0) {
+                    Text(
+                        text = String.format(
+                            Locale.US, "\u2248 %,d T per liter", (costL / litersD).toLong()
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSubtleDark
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Full tank", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = "Needed for consumption stats.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSubtleDark
+                        )
+                    }
+                    Switch(checked = fullTank, onCheckedChange = { fullTank = it })
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            SheetPrimaryButton(
+                text = "Save fill-up",
+                enabled = liters.toDoubleOrNull() != null && odometer.toIntOrNull() != null
+            ) {
+                onSave(liters.toDouble(), cost.toLongOrNull() ?: 0L, odometer.toInt(), fullTank)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DocumentSheet(
+    label: String,
+    initial: Long?,
+    onSave: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var timestamp by remember {
+        mutableStateOf(initial ?: (System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000))
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+                .navigationBarsPadding()
+        ) {
+            SheetHeader(label, onCancel = onDismiss)
+
+            DateField(label = "Expiry date", timestamp = timestamp, onChange = { timestamp = it })
+            val daysLeft =
+                ((timestamp - System.currentTimeMillis()) / (24L * 60 * 60 * 1000)).toInt()
+            Text(
+                text = when {
+                    daysLeft < 0 -> "Already expired."
+                    daysLeft == 0 -> "Expires today."
+                    else -> "Expires in $daysLeft days."
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = when {
+                    daysLeft <= 7 -> StatusDanger
+                    daysLeft <= 30 -> StatusWarning
+                    else -> TextSubtleDark
+                },
+                modifier = Modifier.padding(top = 6.dp)
+            )
+
+            Spacer(Modifier.height(16.dp))
+            SheetPrimaryButton("Save") { onSave(timestamp) }
+        }
+    }
+}
+
+// ---------- Shared date field ----------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -560,200 +930,4 @@ private fun DateField(label: String, timestamp: Long, onChange: (Long) -> Unit) 
             }
         ) { DatePicker(state = state) }
     }
-}
-
-@Composable
-private fun AddServiceDialog(
-    onDismiss: () -> Unit,
-    onSave: (type: String, odometerKm: Int, timestamp: Long, note: String?) -> Unit
-) {
-    var type by remember { mutableStateOf(SERVICE_TYPES.first()) }
-    var odometer by remember { mutableStateOf("") }
-    var timestamp by remember { mutableStateOf(System.currentTimeMillis()) }
-    var note by remember { mutableStateOf("") }
-    var typeMenuOpen by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Log a service") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = "${type.emoji}  ${type.label}",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Type") },
-                        trailingIcon = { Text("\u25BE") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .clickable { typeMenuOpen = true }
-                    )
-                    DropdownMenu(
-                        expanded = typeMenuOpen,
-                        onDismissRequest = { typeMenuOpen = false }
-                    ) {
-                        SERVICE_TYPES.forEach { t ->
-                            DropdownMenuItem(
-                                text = { Text("${t.emoji}  ${t.label}") },
-                                onClick = {
-                                    type = t
-                                    typeMenuOpen = false
-                                }
-                            )
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = odometer,
-                    onValueChange = { odometer = it.filter { c -> c.isDigit() } },
-                    label = { Text("Odometer (km)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                DateField(label = "Date", timestamp = timestamp, onChange = { timestamp = it })
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("Note (optional)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = odometer.toIntOrNull() != null,
-                onClick = { onSave(type.key, odometer.toInt(), timestamp, note) }
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-@Composable
-private fun AddFuelDialog(
-    onDismiss: () -> Unit,
-    onSave: (liters: Double, totalCost: Long, odometerKm: Int, fullTank: Boolean) -> Unit
-) {
-    var liters by remember { mutableStateOf("") }
-    var cost by remember { mutableStateOf("") }
-    var odometer by remember { mutableStateOf("") }
-    var fullTank by remember { mutableStateOf(true) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add a fill-up") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = liters,
-                    onValueChange = { liters = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("Liters") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = cost,
-                    onValueChange = { cost = it.filter { c -> c.isDigit() } },
-                    label = { Text("Total cost (Toman)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = odometer,
-                    onValueChange = { odometer = it.filter { c -> c.isDigit() } },
-                    label = { Text("Odometer (km)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Full tank", style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = fullTank, onCheckedChange = { fullTank = it })
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = liters.toDoubleOrNull() != null && odometer.toIntOrNull() != null,
-                onClick = {
-                    onSave(liters.toDouble(), cost.toLongOrNull() ?: 0L, odometer.toInt(), fullTank)
-                }
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-@Composable
-private fun IntervalDialog(
-    status: ServiceStatus,
-    onSave: (Int?, Int?) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var km by remember { mutableStateOf(status.intervalKm?.toString() ?: "") }
-    var months by remember { mutableStateOf(status.intervalMonths?.toString() ?: "") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("${status.type.label} interval") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Remind me every\u2026 (leave empty to disable)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSubtleDark
-                )
-                OutlinedTextField(
-                    value = km,
-                    onValueChange = { km = it.filter { c -> c.isDigit() } },
-                    label = { Text("Kilometers") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = months,
-                    onValueChange = { months = it.filter { c -> c.isDigit() } },
-                    label = { Text("Months") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(km.toIntOrNull(), months.toIntOrNull()) }) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DocumentDateDialog(
-    initial: Long?,
-    onSave: (Long) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val state = rememberDatePickerState(
-        initialSelectedDateMillis = initial ?: System.currentTimeMillis()
-    )
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = { state.selectedDateMillis?.let(onSave) }) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    ) { DatePicker(state = state) }
 }
