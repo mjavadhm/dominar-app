@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,25 @@ plugins {
     id("kotlin-kapt")
     id("com.google.dagger.hilt.android")
 }
+
+// Neshan keys (https://platform.neshan.org):
+// - NESHAN_SDK_KEY: map SDK key (registered with package name + SHA1), injected
+//   into AndroidManifest as org.maplibre.android.API_KEY.
+// - NESHAN_API_KEY: web-services key (search / reverse geocode / routing).
+// Resolution order: local.properties > gradle property > environment variable.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun secret(name: String): String =
+    localProperties.getProperty(name)
+        ?: (project.findProperty(name) as String?)
+        ?: System.getenv(name)
+        ?: ""
+
+val neshanApiKey = secret("NESHAN_API_KEY")
+val neshanSdkKey = secret("NESHAN_SDK_KEY")
 
 android {
     namespace = "com.dominar.ride"
@@ -16,6 +37,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "NESHAN_API_KEY", "\"$neshanApiKey\"")
+        buildConfigField("String", "NESHAN_SDK_KEY", "\"$neshanSdkKey\"")
+        manifestPlaceholders["NESHAN_SDK_KEY"] = neshanSdkKey
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -41,6 +66,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     // NOTE: composeOptions.kotlinCompilerExtensionVersion is NOT needed with Kotlin 2.0+
     // The compose compiler is now bundled and managed via the kotlin.plugin.compose plugin.
@@ -56,7 +82,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
     implementation("androidx.activity:activity-compose:1.9.2")
 
-    // Compose BOM (2024.09.00 aligns with Kotlin 2.0 / Compose 1.7)
+    // Compose BOM (2024.09.00 aligns with Kotlin 2.0+ / Compose 1.7)
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -72,25 +98,30 @@ dependencies {
     // Compose Navigation
     implementation("androidx.navigation:navigation-compose:2.8.1")
 
-    // Hilt For DI (2.54 is compatible with Kotlin 2.0 + Gradle 8.9)
-    implementation("com.google.dagger:hilt-android:2.54")
-    kapt("com.google.dagger:hilt-compiler:2.54")
+    // Hilt For DI (2.57.1 is compatible with Kotlin 2.2)
+    implementation("com.google.dagger:hilt-android:2.57.1")
+    kapt("com.google.dagger:hilt-compiler:2.57.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Neshan Map SDK
-    implementation("neshan-android-sdk:mobile-sdk:1.0.1")
-    implementation("neshan-android-sdk:services-sdk:1.0.0")
-    implementation("neshan-android-sdk:common-sdk:0.0.2")
-    
-    // Required by Neshan Map SDK
+    // Room (local database for Garage & Performance data)
+    // 2.7.2+ is required with Kotlin 2.2: older room-compiler versions can't
+    // read Kotlin 2.2 class metadata ("maximum supported version is 2.0.0").
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    kapt("androidx.room:room-compiler:2.7.2")
+
+    // WorkManager (daily garage reminder checks)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Neshan map SDK (new MapLibre-based SDK, published on Maven Central)
+    implementation("org.neshan.maplibre:android-sdk-opengl:13.4.1")
+
     implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.google.android.material:material:1.11.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
