@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.dominar.ride.BuildConfig
+import com.dominar.ride.debug.DebugLog
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
@@ -22,8 +23,9 @@ import org.maplibre.android.style.sources.TileSet
  * probes a small set of candidate tile URLs (different hosts, with each
  * configured key and without a key) against a fixed Tehran tile, then keeps
  * the first combination that returns an image. Every attempt is logged under
- * the `TrafficOverlay` tag (`adb logcat -s TrafficOverlay`), so a failing
- * setup is diagnosable from the device instead of guesswork.
+ * the `TrafficOverlay` tag (`adb logcat -s TrafficOverlay`) and mirrored to
+ * the in-app debug log (Settings > Debug), so a failing setup is diagnosable
+ * from the device instead of guesswork.
  *
  * A timestamp query param busts the tile cache, so re-adding the source with
  * a fresh `ts` pulls the latest congestion colors.
@@ -77,6 +79,7 @@ object TrafficOverlay {
             if (found == null) {
                 lastFailedProbeAt = System.currentTimeMillis()
                 Log.w(TAG, "No traffic tile endpoint responded; overlay stays hidden")
+                DebugLog.log(TAG, "No traffic tile endpoint responded; overlay stays hidden")
             } else {
                 resolvedTemplates = found
                 mainHandler.post { runCatching { apply(map, found) } }
@@ -101,6 +104,7 @@ object TrafficOverlay {
             )
         }.onFailure {
             Log.w(TAG, "Failed to add traffic layer: ${it.message}")
+            DebugLog.log(TAG, "Failed to add traffic layer: ${it.message}")
         }
     }
 
@@ -110,6 +114,7 @@ object TrafficOverlay {
             val sample = templates.first().replace("{z}/{x}/{y}.png", PROBE_TILE)
             if (probeUrl(sample)) {
                 Log.i(TAG, "Traffic tiles resolved via ${redactKey(templates.first())}")
+                DebugLog.log(TAG, "Traffic tiles resolved via ${redactKey(templates.first())}")
                 return templates
             }
         }
@@ -131,16 +136,16 @@ object TrafficOverlay {
         val candidates = mutableListOf<Array<String>>()
         for (key in keys) {
             candidates += subdomainUrls("?key=$key")
-            candidates += arrayOf("{{https://tile.neshan.org/traffic/{z}}}/{x}/{y}.png?key=$key")
+            candidates += arrayOf("https://tile.neshan.org/traffic/{z}/{x}/{y}.png?key=$key")
         }
         candidates += subdomainUrls("")
-        candidates += arrayOf("{{https://tile.neshan.org/traffic/{z}}}/{x}/{y}.png")
+        candidates += arrayOf("https://tile.neshan.org/traffic/{z}/{x}/{y}.png")
         return candidates
     }
 
     private fun subdomainUrls(query: String): Array<String> =
         arrayOf("1", "2", "3", "4").map { sub ->
-            "{{https://$sub.neshan.org/traffic/{z}}}/{x}/{y}.png$query"
+            "https://$sub.neshan.org/traffic/{z}/{x}/{y}.png$query"
         }.toTypedArray()
 
     /** GETs [url] and reports whether it returned an HTTP 200 image. */
@@ -152,17 +157,26 @@ object TrafficOverlay {
         try {
             val code = conn.responseCode
             val type = conn.contentType.orEmpty()
+            val ok = code == 200 && type.startsWith("image")
+            // Keep the raw (non-image) response body so key/endpoint errors
+            // are diagnosable from the in-app debug log.
+            val rawBody = if (ok) "" else {
+                (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.use { it.readText().take(2000) } ?: ""
+            }
             Log.i(TAG, "Probe ${redactKey(url)} -> HTTP $code ($type)")
-            code == 200 && type.startsWith("image")
+            DebugLog.log(TAG, "Probe ${redactKey(url)} -> HTTP $code ($type)", rawBody)
+            ok
         } finally {
             conn.disconnect()
         }
     }.getOrElse {
         Log.w(TAG, "Probe ${redactKey(url)} failed: ${it.message}")
+        DebugLog.log(TAG, "Probe ${redactKey(url)} failed: ${it.message}")
         false
     }
 
-    /** Keeps API keys out of logcat. */
+    /** Keeps API keys out of logs. */
     private fun redactKey(url: String): String =
         url.replace(Regex("key=[^&]+"), "key=***")
 }

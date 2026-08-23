@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dominar.ride.ble.BleConnectionManager.ConnectionState
+import com.dominar.ride.debug.DebugSection
 import com.dominar.ride.ui.AppState
 import com.dominar.ride.ui.theme.BorderDark
 import com.dominar.ride.ui.theme.PrimaryBlue
@@ -76,6 +77,9 @@ fun SettingsScreen(
 
         SectionLabel("LIVE ACTIVITY")
         ActivityLog(logs)
+
+        SectionLabel("DEBUG")
+        DebugSection()
     }
 }
 

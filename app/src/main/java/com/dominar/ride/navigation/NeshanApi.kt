@@ -1,6 +1,7 @@
 package com.dominar.ride.navigation
 
 import com.dominar.ride.BuildConfig
+import com.dominar.ride.debug.DebugLog
 import org.json.JSONObject
 import org.maplibre.android.geometry.LatLng
 import java.net.HttpURLConnection
@@ -54,13 +55,14 @@ object NeshanApi {
 
     private fun get(url: String): JSONObject {
         val key = BuildConfig.NESHAN_API_KEY
+        // e.g. "v1/search" or "v4/direction" — used to build actionable errors.
+        val service = url.removePrefix(BASE).trimStart('/').substringBefore("?")
         if (key.isBlank()) {
+            DebugLog.log("NeshanApi", "GET $service skipped: NESHAN_API_KEY is blank", "URL: $url")
             throw NeshanApiException(
                 "Neshan API key missing — add NESHAN_API_KEY to local.properties"
             )
         }
-        // e.g. "v1/search" or "v4/direction" — used to build actionable errors.
-        val service = url.removePrefix(BASE).trimStart('/').substringBefore("?")
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "GET"
@@ -70,6 +72,11 @@ object NeshanApi {
             val code = conn.responseCode
             val body = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader()?.use { it.readText() } ?: ""
+            DebugLog.log(
+                "NeshanApi",
+                "GET $service -> HTTP $code",
+                "URL: $url\n\nRaw response:\n$body"
+            )
             return when (code) {
                 in 200..299 -> JSONObject(body)
                 401, 403, 480 -> throw NeshanApiException(
@@ -90,6 +97,16 @@ object NeshanApi {
                 )
                 else -> throw NeshanApiException("Neshan API failed (HTTP $code, $service)")
             }
+        } catch (e: Exception) {
+            // Network-level failures never reach the response logging above.
+            if (e !is NeshanApiException) {
+                DebugLog.log(
+                    "NeshanApi",
+                    "GET $service failed: " + (e.message ?: e.javaClass.simpleName),
+                    "URL: $url"
+                )
+            }
+            throw e
         } finally {
             conn.disconnect()
         }
