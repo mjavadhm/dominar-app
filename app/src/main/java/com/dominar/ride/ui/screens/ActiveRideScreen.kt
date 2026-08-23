@@ -47,6 +47,7 @@ import com.dominar.ride.navigation.NavRoute
 import com.dominar.ride.navigation.NavSession
 import com.dominar.ride.navigation.NavTracker
 import com.dominar.ride.navigation.NeshanApi
+import com.dominar.ride.navigation.TrafficOverlay
 import com.dominar.ride.protocol.DominarProtocol
 import com.dominar.ride.ui.AppState
 import com.dominar.ride.ui.PerformanceViewModel
@@ -154,6 +155,8 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
         routeLines = emptyList()
     }
 
+    // Slightly transparent lines keep the traffic colors underneath visible,
+    // so riders can compare congestion across the alternatives (like Maps).
     fun drawRoutes(m: MapLibreMap) {
         routeLines.forEach { m.removePolyline(it) }
         val lines = ArrayList<Polyline>()
@@ -164,6 +167,7 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
                         .addAll(r.points)
                         .color(android.graphics.Color.rgb(122, 132, 148))
                         .width(5f)
+                        .alpha(0.65f)
                 )
             }
         }
@@ -173,6 +177,7 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
                     .addAll(r.points)
                     .color(android.graphics.Color.rgb(30, 118, 255))
                     .width(7f)
+                    .alpha(0.8f)
             )
         }
         routeLines = lines
@@ -217,6 +222,7 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
                 nav.clearRoutes()
                 nav.routes = rs
                 map?.let { m ->
+                    TrafficOverlay.refresh(m)
                     drawRoutes(m)
                     fitRoute(m, rs.first())
                 }
@@ -463,6 +469,7 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
     LaunchedEffect(Unit) {
         mapView.getMapAsync { m ->
             m.setStyle(Style.Builder().fromUri(NESHAN_STYLE_URI)) {
+                TrafficOverlay.refresh(m)
                 m.cameraPosition = CameraPosition.Builder()
                     .target(nav.myLocation ?: LatLng(35.6892, 51.3890)) // Tehran fallback
                     .zoom(11.0)
@@ -483,6 +490,15 @@ fun ActiveRideScreen(app: AppState, nav: NavSession, onExit: () -> Unit) {
                 if (target == EndpointField.ORIGIN) setOrigin(place) else setDestination(place)
                 true
             }
+        }
+    }
+
+    // Live traffic: refresh the overlay every 5 minutes while this tab is open.
+    LaunchedEffect(map) {
+        val m = map ?: return@LaunchedEffect
+        while (true) {
+            delay(TrafficOverlay.REFRESH_INTERVAL_MS)
+            TrafficOverlay.refresh(m)
         }
     }
 
