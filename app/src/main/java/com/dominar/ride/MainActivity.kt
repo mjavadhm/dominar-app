@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
 import com.dominar.ride.data.DevicePrefs
+import com.dominar.ride.navigation.NavSession
 import com.dominar.ride.ui.AppState
 import com.dominar.ride.ui.permissions.PermissionGate
 import com.dominar.ride.ui.screens.ActiveRideScreen
@@ -47,6 +48,9 @@ class MainActivity : ComponentActivity() {
             DominarRideTheme {
                 val appState = remember { AppState(applicationContext) }
                 val prefs = remember { DevicePrefs(applicationContext) }
+                // Navigation session lives here so the Ride tab keeps its
+                // destination/route/guidance when the rider switches tabs.
+                val navSession = remember { NavSession() }
                 var currentTab by rememberSaveable { mutableStateOf("home") }
                 var showSettings by rememberSaveable { mutableStateOf(false) }
                 var showOnboarding by rememberSaveable {
@@ -101,7 +105,8 @@ class MainActivity : ComponentActivity() {
                                     ) {
                                         ActiveRideScreen(
                                             app = appState,
-                                            onStopRide = { currentTab = "home" }
+                                            nav = navSession,
+                                            onExit = { currentTab = "home" }
                                         )
                                     }
                                     "garage" -> GarageScreen()
